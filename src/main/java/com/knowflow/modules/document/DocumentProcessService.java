@@ -38,14 +38,14 @@ public class DocumentProcessService {
     @Async
     @Transactional
     public void processAsync(Long taskId) {
-        DocumentProcessTask task = taskRepository.findById(taskId).orElseThrow();
-        Document document = documentRepository.findById(task.getDocumentId()).orElseThrow();
+        DocumentProcessTask task = taskRepository.selectById(taskId);
+        Document document = documentRepository.selectById(task.getDocumentId());
         try {
             task.setStatus(TaskStatus.PROCESSING);
             document.setParseStatus(DocumentParseStatus.PARSING);
             document.setEmbeddingStatus(EmbeddingStatus.PROCESSING);
-            taskRepository.save(task);
-            documentRepository.save(document);
+            taskRepository.updateById(task);
+            documentRepository.updateById(document);
 
             chunkRepository.deleteByDocumentId(document.getId());
             String text = documentParser.parse(Path.of(document.getFilePath()), document.getFileType());
@@ -60,7 +60,7 @@ public class DocumentProcessService {
                 chunk.setContent(content);
                 chunk.setTokenCount(Math.max(1, content.length() / 2));
                 chunk.setEmbedding(serialize(embeddingClient.embed(content)));
-                chunkRepository.save(chunk);
+                chunkRepository.insert(chunk);
             }
             task.setStatus(TaskStatus.SUCCESS);
             task.setFailReason(null);
@@ -74,8 +74,8 @@ public class DocumentProcessService {
             document.setEmbeddingStatus(EmbeddingStatus.FAILED);
             document.setErrorMessage(ex.getMessage());
         }
-        taskRepository.save(task);
-        documentRepository.save(document);
+        taskRepository.updateById(task);
+        documentRepository.updateById(document);
     }
 
     private String serialize(double[] vector) {

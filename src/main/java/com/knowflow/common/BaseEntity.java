@@ -1,44 +1,25 @@
 package com.knowflow.common;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.MappedSuperclass;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
+import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableLogic;
 
 import java.time.LocalDateTime;
 
-@MappedSuperclass
 public abstract class BaseEntity {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
 
-    @Column(nullable = false, updatable = false)
+    @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 
-    @Column(nullable = false)
+    @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
 
-    @Column(nullable = false)
+    @TableLogic
     private Boolean deleted = false;
-
-    @PrePersist
-    public void prePersist() {
-        LocalDateTime now = LocalDateTime.now();
-        createTime = now;
-        updateTime = now;
-        if (deleted == null) {
-            deleted = false;
-        }
-    }
-
-    @PreUpdate
-    public void preUpdate() {
-        updateTime = LocalDateTime.now();
-    }
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }

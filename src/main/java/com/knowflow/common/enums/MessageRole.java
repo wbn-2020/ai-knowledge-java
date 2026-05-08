@@ -1,5 +1,18 @@
 package com.knowflow.common.enums;
 
+import com.baomidou.mybatisplus.annotation.EnumValue;
+
 public enum MessageRole {
-    USER, ASSISTANT
+    USER("USER"), ASSISTANT("ASSISTANT");
+
+    @EnumValue
+    private final String value;
+
+    MessageRole(String value) {
+        this.value = value;
+    }
+
+    public String getValue() {
+        return value;
+    }
 }

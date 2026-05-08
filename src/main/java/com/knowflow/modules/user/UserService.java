@@ -20,8 +20,7 @@ public class UserService {
     }
 
     public UserVO current() {
-        User user = getCurrentUserEntity();
-        return UserVO.from(user);
+        return UserVO.from(getCurrentUserEntity());
     }
 
     @Transactional
@@ -35,7 +34,8 @@ public class UserService {
         user.setEmail(request.email());
         user.setAvatar(request.avatar());
         user.setBio(request.bio());
-        return UserVO.from(userRepository.save(user));
+        userRepository.updateById(user);
+        return UserVO.from(user);
     }
 
     @Transactional
@@ -48,7 +48,7 @@ public class UserService {
             throw BusinessException.badRequest("旧密码错误");
         }
         user.setPassword(passwordEncoder.encode(request.newPassword()));
-        userRepository.save(user);
+        userRepository.updateById(user);
     }
 
     private User getCurrentUserEntity() {

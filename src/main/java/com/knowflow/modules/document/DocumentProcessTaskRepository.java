@@ -1,9 +1,11 @@
 package com.knowflow.modules.document;
 
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.repository.JpaRepository;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
-public interface DocumentProcessTaskRepository extends JpaRepository<DocumentProcessTask, Long> {
-    Page<DocumentProcessTask> findByDeletedFalse(Pageable pageable);
+public interface DocumentProcessTaskRepository extends BaseMapper<DocumentProcessTask> {
+    default Page<DocumentProcessTask> findByDeletedFalse(Page<DocumentProcessTask> page) {
+        return selectPage(page, new LambdaQueryWrapper<DocumentProcessTask>().orderByDesc(DocumentProcessTask::getCreateTime));
+    }
 }

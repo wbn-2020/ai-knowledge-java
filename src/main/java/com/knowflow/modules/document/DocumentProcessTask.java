@@ -1,26 +1,15 @@
 package com.knowflow.modules.document;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import com.knowflow.common.BaseEntity;
 import com.knowflow.common.enums.TaskStatus;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.Table;
 
-@Entity
-@Table(name = "document_process_task")
+@TableName("document_process_task")
 public class DocumentProcessTask extends BaseEntity {
-    @Column(nullable = false)
     private Long userId;
-    @Column(nullable = false)
     private Long knowledgeBaseId;
-    @Column(nullable = false)
     private Long documentId;
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 32)
     private TaskStatus status = TaskStatus.PENDING;
-    @Column(length = 1024)
     private String failReason;
 
     public Long getUserId() { return userId; }

@@ -2,6 +2,8 @@
 
 KnowFlow AI backend MVP for a personal knowledge base and RAG question answering platform.
 
+Backend stack: Spring Boot 3, Java 17, MyBatis-Plus, MySQL 8, Spring Security, JWT, PDFBox and Apache POI.
+
 ## Run
 
 1. Create schema:

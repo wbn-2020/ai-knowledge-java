@@ -1,5 +1,6 @@
 package com.knowflow.modules.chat;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.knowflow.common.BusinessException;
 import com.knowflow.common.PageResponse;
 import com.knowflow.common.enums.KnowledgeBaseStatus;
@@ -15,8 +16,6 @@ import com.knowflow.modules.knowledge.KnowledgeBase;
 import com.knowflow.modules.knowledge.KnowledgeBaseService;
 import com.knowflow.security.SecurityUtils;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -68,15 +67,13 @@ public class ChatService {
             throw BusinessException.badRequest("知识库当前不可问答");
         }
         ChatSession session = resolveSession(request, userId);
-        ChatMessage userMessage = saveMessage(userId, session.getId(), MessageRole.USER, request.question(), null);
+        saveMessage(userId, session.getId(), MessageRole.USER, request.question(), null);
 
         List<ScoredChunk> scoredChunks = retrieve(userId, request.knowledgeBaseId(), request.question());
-        String answer;
-        if (scoredChunks.isEmpty()) {
-            answer = "当前知识库中没有找到足够依据。";
-        } else {
-            answer = llmClient.complete(buildPrompt(request.question(), scoredChunks));
-        }
+        String answer = scoredChunks.isEmpty()
+                ? "当前知识库中没有找到足够依据。"
+                : llmClient.complete(buildPrompt(request.question(), scoredChunks));
+
         ChatMessage assistantMessage = saveMessage(userId, session.getId(), MessageRole.ASSISTANT, answer, "mock-llm");
         List<ReferenceVO> references = scoredChunks.stream()
                 .map(scored -> saveReference(userId, assistantMessage.getId(), scored))
@@ -87,8 +84,8 @@ public class ChatService {
 
     public PageResponse<ChatSessionVO> sessions(int pageNo, int pageSize) {
         return PageResponse.of(sessionRepository
-                .findByUserIdAndDeletedFalse(SecurityUtils.getCurrentUserId(), PageRequest.of(pageNo - 1, pageSize, Sort.by(Sort.Direction.DESC, "updateTime")))
-                .map(ChatSessionVO::from));
+                .findByUserIdAndDeletedFalse(SecurityUtils.getCurrentUserId(), new Page<>(pageNo, pageSize))
+                .convert(ChatSessionVO::from));
     }
 
     public List<ChatMessageVO> messages(Long sessionId) {
@@ -110,7 +107,7 @@ public class ChatService {
     public void deleteSession(Long sessionId) {
         ChatSession session = requireSession(sessionId, SecurityUtils.getCurrentUserId());
         session.setDeleted(true);
-        sessionRepository.save(session);
+        sessionRepository.updateById(session);
     }
 
     private ChatSession resolveSession(AskRequest request, Long userId) {
@@ -125,7 +122,8 @@ public class ChatService {
         session.setUserId(userId);
         session.setKnowledgeBaseId(request.knowledgeBaseId());
         session.setTitle(request.question().length() > 30 ? request.question().substring(0, 30) : request.question());
-        return sessionRepository.save(session);
+        sessionRepository.insert(session);
+        return session;
     }
 
     private ChatSession requireSession(Long sessionId, Long userId) {
@@ -141,17 +139,17 @@ public class ChatService {
         message.setContent(content);
         message.setModelName(modelName);
         message.setTokenCount(Math.max(1, content.length() / 2));
-        return messageRepository.save(message);
+        messageRepository.insert(message);
+        return message;
     }
 
     private List<ScoredChunk> retrieve(Long userId, Long knowledgeBaseId, String question) {
         double[] query = embeddingClient.embed(question);
-        Map<Long, Document> documents = documentRepository.findAllById(
-                chunkRepository.findByUserIdAndKnowledgeBaseIdAndDeletedFalse(userId, knowledgeBaseId).stream()
-                        .map(DocumentChunk::getDocumentId)
-                        .collect(Collectors.toSet())
+        List<DocumentChunk> chunks = chunkRepository.findByUserIdAndKnowledgeBaseIdAndDeletedFalse(userId, knowledgeBaseId);
+        Map<Long, Document> documents = documentRepository.selectBatchIds(
+                chunks.stream().map(DocumentChunk::getDocumentId).collect(Collectors.toSet())
         ).stream().collect(Collectors.toMap(Document::getId, d -> d));
-        return chunkRepository.findByUserIdAndKnowledgeBaseIdAndDeletedFalse(userId, knowledgeBaseId).stream()
+        return chunks.stream()
                 .map(chunk -> new ScoredChunk(chunk, documents.get(chunk.getDocumentId()), cosine(query, parseVector(chunk.getEmbedding()))))
                 .filter(scored -> scored.score() >= minScore)
                 .sorted(Comparator.comparing(ScoredChunk::score).reversed())
@@ -168,7 +166,8 @@ public class ChatService {
         reference.setDocumentName(scored.document() == null ? "" : scored.document().getName());
         reference.setContent(scored.chunk().getContent());
         reference.setScore(scored.score());
-        return referenceRepository.save(reference);
+        referenceRepository.insert(reference);
+        return reference;
     }
 
     private String buildPrompt(String question, List<ScoredChunk> chunks) {

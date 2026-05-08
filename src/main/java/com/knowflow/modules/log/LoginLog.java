@@ -1,19 +1,13 @@
 package com.knowflow.modules.log;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import com.knowflow.common.BaseEntity;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Table;
 
-@Entity
-@Table(name = "login_log")
+@TableName("login_log")
 public class LoginLog extends BaseEntity {
     private Long userId;
-    @Column(nullable = false, length = 128)
     private String account;
-    @Column(nullable = false)
     private Boolean success;
-    @Column(length = 255)
     private String message;
 
     public Long getUserId() { return userId; }

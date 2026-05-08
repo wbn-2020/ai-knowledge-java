@@ -4,8 +4,7 @@ import com.knowflow.common.BusinessException;
 import com.knowflow.common.PageResponse;
 import com.knowflow.modules.knowledge.dto.KnowledgeBaseRequest;
 import com.knowflow.security.SecurityUtils;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,16 +21,16 @@ public class KnowledgeBaseService {
         KnowledgeBase kb = new KnowledgeBase();
         kb.setUserId(SecurityUtils.getCurrentUserId());
         fill(kb, request);
-        return KnowledgeBaseVO.from(repository.save(kb));
+        repository.insert(kb);
+        return KnowledgeBaseVO.from(kb);
     }
 
     public PageResponse<KnowledgeBaseVO> page(String keyword, int pageNo, int pageSize, String sortBy) {
-        Sort sort = "createTime".equals(sortBy)
-                ? Sort.by(Sort.Direction.DESC, "createTime")
-                : Sort.by(Sort.Direction.DESC, "updateTime");
-        return PageResponse.of(repository
-                .findByUserIdAndDeletedFalseAndNameContaining(keyword == null ? "" : keyword, SecurityUtils.getCurrentUserId(), PageRequest.of(pageNo - 1, pageSize, sort))
-                .map(KnowledgeBaseVO::from));
+        Page<KnowledgeBase> page = repository.findByUserIdAndDeletedFalseAndNameContaining(
+                keyword == null ? "" : keyword,
+                SecurityUtils.getCurrentUserId(),
+                new Page<>(pageNo, pageSize));
+        return PageResponse.of(convertPage(page, page.getRecords().stream().map(KnowledgeBaseVO::from).toList()));
     }
 
     public KnowledgeBaseVO detail(Long id) {
@@ -42,14 +41,15 @@ public class KnowledgeBaseService {
     public KnowledgeBaseVO update(Long id, KnowledgeBaseRequest request) {
         KnowledgeBase kb = requireOwned(id);
         fill(kb, request);
-        return KnowledgeBaseVO.from(repository.save(kb));
+        repository.updateById(kb);
+        return KnowledgeBaseVO.from(kb);
     }
 
     @Transactional
     public void delete(Long id) {
         KnowledgeBase kb = requireOwned(id);
         kb.setDeleted(true);
-        repository.save(kb);
+        repository.updateById(kb);
     }
 
     public KnowledgeBase requireOwned(Long id) {
@@ -62,5 +62,11 @@ public class KnowledgeBaseService {
         kb.setDescription(request.description());
         kb.setIcon(request.icon());
         kb.setCategory(request.category());
+    }
+
+    private Page<KnowledgeBaseVO> convertPage(Page<KnowledgeBase> source, java.util.List<KnowledgeBaseVO> records) {
+        Page<KnowledgeBaseVO> target = new Page<>(source.getCurrent(), source.getSize(), source.getTotal());
+        target.setRecords(records);
+        return target;
     }
 }

@@ -1,38 +1,21 @@
 package com.knowflow.modules.document;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import com.knowflow.common.BaseEntity;
 import com.knowflow.common.enums.DocumentParseStatus;
 import com.knowflow.common.enums.EmbeddingStatus;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.Table;
 
-@Entity
-@Table(name = "document")
+@TableName("document")
 public class Document extends BaseEntity {
-    @Column(nullable = false)
     private Long userId;
-    @Column(nullable = false)
     private Long knowledgeBaseId;
-    @Column(nullable = false, length = 255)
     private String name;
-    @Column(nullable = false, length = 255)
     private String originalName;
-    @Column(nullable = false, length = 32)
     private String fileType;
-    @Column(nullable = false)
     private Long fileSize;
-    @Column(nullable = false, length = 1024)
     private String filePath;
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 32)
     private DocumentParseStatus parseStatus = DocumentParseStatus.PENDING;
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 32)
     private EmbeddingStatus embeddingStatus = EmbeddingStatus.PENDING;
-    @Column(length = 1024)
     private String errorMessage;
 
     public Long getUserId() { return userId; }

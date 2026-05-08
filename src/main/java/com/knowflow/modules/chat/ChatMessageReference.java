@@ -1,28 +1,16 @@
 package com.knowflow.modules.chat;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import com.knowflow.common.BaseEntity;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Lob;
-import jakarta.persistence.Table;
 
-@Entity
-@Table(name = "chat_message_reference")
+@TableName("chat_message_reference")
 public class ChatMessageReference extends BaseEntity {
-    @Column(nullable = false)
     private Long userId;
-    @Column(nullable = false)
     private Long messageId;
-    @Column(nullable = false)
     private Long documentId;
-    @Column(nullable = false)
     private Long chunkId;
-    @Column(nullable = false, length = 255)
     private String documentName;
-    @Lob
-    @Column(nullable = false)
     private String content;
-    @Column(nullable = false)
     private Double score;
 
     public Long getUserId() { return userId; }

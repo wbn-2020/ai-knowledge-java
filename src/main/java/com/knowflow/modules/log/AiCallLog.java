@@ -1,23 +1,15 @@
 package com.knowflow.modules.log;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import com.knowflow.common.BaseEntity;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Table;
 
-@Entity
-@Table(name = "ai_call_log")
+@TableName("ai_call_log")
 public class AiCallLog extends BaseEntity {
-    @Column(nullable = false)
     private Long userId;
-    @Column(length = 128)
     private String modelName;
-    @Column(length = 64)
     private String callType;
     private Long elapsedMs;
-    @Column(nullable = false)
     private Boolean success;
-    @Column(length = 1024)
     private String failReason;
 
     public Long getUserId() { return userId; }

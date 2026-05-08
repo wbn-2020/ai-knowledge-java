@@ -1,41 +1,26 @@
 package com.knowflow.modules.user;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import com.knowflow.common.BaseEntity;
 import com.knowflow.common.enums.UserRole;
 import com.knowflow.common.enums.UserStatus;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.Table;
 
-@Entity
-@Table(name = "sys_user")
+@TableName("sys_user")
 public class User extends BaseEntity {
-    @Column(nullable = false, unique = true, length = 64)
     private String username;
 
-    @Column(unique = true, length = 128)
     private String email;
 
-    @Column(nullable = false)
     private String password;
 
-    @Column(length = 128)
     private String nickname;
 
-    @Column(length = 512)
     private String avatar;
 
-    @Column(length = 512)
     private String bio;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 32)
     private UserStatus status = UserStatus.ENABLED;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 32)
     private UserRole role = UserRole.USER;
 
     public String getUsername() { return username; }

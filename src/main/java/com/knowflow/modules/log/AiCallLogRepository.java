@@ -1,6 +1,6 @@
 package com.knowflow.modules.log;
 
-import org.springframework.data.jpa.repository.JpaRepository;
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 
-public interface AiCallLogRepository extends JpaRepository<AiCallLog, Long> {
+public interface AiCallLogRepository extends BaseMapper<AiCallLog> {
 }

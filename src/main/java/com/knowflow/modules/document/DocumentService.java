@@ -1,5 +1,6 @@
 package com.knowflow.modules.document;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.knowflow.common.BusinessException;
 import com.knowflow.common.PageResponse;
 import com.knowflow.common.enums.DocumentParseStatus;
@@ -10,8 +11,6 @@ import com.knowflow.modules.knowledge.KnowledgeBaseRepository;
 import com.knowflow.modules.knowledge.KnowledgeBaseService;
 import com.knowflow.security.SecurityUtils;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -26,6 +25,7 @@ import java.util.UUID;
 @Service
 public class DocumentService {
     private static final Set<String> ALLOWED_TYPES = Set.of("pdf", "docx", "txt", "md");
+
     private final DocumentRepository documentRepository;
     private final DocumentProcessTaskRepository taskRepository;
     private final DocumentChunkRepository chunkRepository;
@@ -58,6 +58,7 @@ public class DocumentService {
         if (!ALLOWED_TYPES.contains(fileType)) {
             throw BusinessException.badRequest("仅支持 PDF、DOCX、TXT、MD 文件");
         }
+
         Files.createDirectories(uploadRoot);
         String storedName = UUID.randomUUID() + "." + fileType;
         Path storedPath = uploadRoot.resolve(storedName).toAbsolutePath().normalize();
@@ -73,10 +74,10 @@ public class DocumentService {
         document.setFilePath(storedPath.toString());
         document.setParseStatus(DocumentParseStatus.PENDING);
         document.setEmbeddingStatus(EmbeddingStatus.PENDING);
-        documentRepository.save(document);
+        documentRepository.insert(document);
 
         kb.setDocumentCount(kb.getDocumentCount() + 1);
-        knowledgeBaseRepository.save(kb);
+        knowledgeBaseRepository.updateById(kb);
 
         DocumentProcessTask task = createTask(document);
         processService.processAsync(task.getId());
@@ -90,8 +91,8 @@ public class DocumentService {
                         SecurityUtils.getCurrentUserId(),
                         knowledgeBaseId,
                         keyword == null ? "" : keyword,
-                        PageRequest.of(pageNo - 1, pageSize, Sort.by(Sort.Direction.DESC, "createTime")))
-                .map(DocumentVO::from));
+                        new Page<>(pageNo, pageSize))
+                .convert(DocumentVO::from));
     }
 
     public DocumentVO detail(Long id) {
@@ -102,12 +103,12 @@ public class DocumentService {
     public void delete(Long id) {
         Document document = requireOwned(id);
         document.setDeleted(true);
-        documentRepository.save(document);
+        documentRepository.updateById(document);
         chunkRepository.deleteByDocumentId(id);
         knowledgeBaseRepository.findByIdAndUserIdAndDeletedFalse(document.getKnowledgeBaseId(), document.getUserId())
                 .ifPresent(kb -> {
                     kb.setDocumentCount(Math.max(0, kb.getDocumentCount() - 1));
-                    knowledgeBaseRepository.save(kb);
+                    knowledgeBaseRepository.updateById(kb);
                 });
     }
 
@@ -118,7 +119,7 @@ public class DocumentService {
         document.setParseStatus(DocumentParseStatus.PENDING);
         document.setEmbeddingStatus(EmbeddingStatus.PENDING);
         document.setErrorMessage(null);
-        documentRepository.save(document);
+        documentRepository.updateById(document);
         DocumentProcessTask task = createTask(document);
         processService.processAsync(task.getId());
         return DocumentVO.from(document);
@@ -135,7 +136,8 @@ public class DocumentService {
         task.setKnowledgeBaseId(document.getKnowledgeBaseId());
         task.setDocumentId(document.getId());
         task.setStatus(TaskStatus.PENDING);
-        return taskRepository.save(task);
+        taskRepository.insert(task);
+        return task;
     }
 
     private String extension(String filename) {

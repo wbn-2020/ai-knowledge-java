@@ -45,7 +45,7 @@ public class AuthService {
         user.setPassword(passwordEncoder.encode(request.password()));
         user.setRole(UserRole.USER);
         user.setStatus(UserStatus.ENABLED);
-        userRepository.save(user);
+        userRepository.insert(user);
         return toLoginVO(user);
     }
 

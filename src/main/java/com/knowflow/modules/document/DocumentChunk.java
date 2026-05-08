@@ -1,29 +1,17 @@
 package com.knowflow.modules.document;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import com.knowflow.common.BaseEntity;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Lob;
-import jakarta.persistence.Table;
 
-@Entity
-@Table(name = "document_chunk")
+@TableName("document_chunk")
 public class DocumentChunk extends BaseEntity {
-    @Column(nullable = false)
     private Long userId;
-    @Column(nullable = false)
     private Long knowledgeBaseId;
-    @Column(nullable = false)
     private Long documentId;
-    @Column(nullable = false)
     private Integer chunkIndex;
-    @Lob
-    @Column(nullable = false)
     private String content;
-    @Column(nullable = false)
     private Integer tokenCount;
-    @Lob
-    private String embedding;
+        private String embedding;
 
     public Long getUserId() { return userId; }
     public void setUserId(Long userId) { this.userId = userId; }

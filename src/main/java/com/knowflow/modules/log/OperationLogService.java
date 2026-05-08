@@ -18,6 +18,6 @@ public class OperationLogService {
         log.setTargetType(targetType);
         log.setTargetId(targetId);
         log.setDetail(detail);
-        repository.save(log);
+        repository.insert(log);
     }
 }

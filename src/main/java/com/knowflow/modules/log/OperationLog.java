@@ -1,21 +1,14 @@
 package com.knowflow.modules.log;
 
+import com.baomidou.mybatisplus.annotation.TableName;
 import com.knowflow.common.BaseEntity;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Table;
 
-@Entity
-@Table(name = "operation_log")
+@TableName("operation_log")
 public class OperationLog extends BaseEntity {
-    @Column(nullable = false)
     private Long userId;
-    @Column(nullable = false, length = 64)
     private String action;
-    @Column(length = 128)
     private String targetType;
     private Long targetId;
-    @Column(length = 1024)
     private String detail;
 
     public Long getUserId() { return userId; }
