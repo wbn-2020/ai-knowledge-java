@@ -101,13 +101,23 @@ public class DocumentService {
         return DocumentVO.from(document);
     }
 
-    public PageResponse<DocumentVO> page(Long knowledgeBaseId, String keyword, int pageNo, int pageSize) {
-        knowledgeBaseService.requireOwned(knowledgeBaseId);
+    public PageResponse<DocumentVO> page(Long knowledgeBaseId,
+                                         String keyword,
+                                         DocumentParseStatus parseStatus,
+                                         EmbeddingStatus embeddingStatus,
+                                         int pageNo,
+                                         int pageSize) {
+        if (knowledgeBaseId != null) {
+            knowledgeBaseService.requireOwned(knowledgeBaseId);
+        }
+        Long userId = SecurityUtils.getCurrentUserId();
         return PageResponse.of(documentRepository
-                .findByUserIdAndKnowledgeBaseIdAndDeletedFalseAndNameContaining(
-                        SecurityUtils.getCurrentUserId(),
+                .findByUserIdAndFiltersAndDeletedFalse(
+                        userId,
                         knowledgeBaseId,
                         keyword == null ? "" : keyword,
+                        parseStatus,
+                        embeddingStatus,
                         new Page<>(pageNo, pageSize))
                 .convert(DocumentVO::from));
     }

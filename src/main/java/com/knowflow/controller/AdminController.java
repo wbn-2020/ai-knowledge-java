@@ -5,7 +5,9 @@ import com.knowflow.common.PageResponse;
 import com.knowflow.dto.LoginRequest;
 import com.knowflow.vo.LoginVO;
 import com.knowflow.dto.ResetPasswordRequest;
+import com.knowflow.enums.DocumentParseStatus;
 import com.knowflow.enums.KnowledgeBaseStatus;
+import com.knowflow.enums.TaskStatus;
 import com.knowflow.enums.UserStatus;
 import com.knowflow.service.AdminService;
 import com.knowflow.service.AuthService;
@@ -96,9 +98,12 @@ public class AdminController {
 
     @GetMapping("/documents")
     public ApiResponse<PageResponse<DocumentVO>> documents(@RequestParam(defaultValue = "") String keyword,
+                                                           @RequestParam(required = false) Long knowledgeBaseId,
+                                                           @RequestParam(required = false) DocumentParseStatus parseStatus,
+                                                           @RequestParam(required = false) String fileType,
                                                            @RequestParam(defaultValue = "1") int pageNo,
                                                            @RequestParam(defaultValue = "10") int pageSize) {
-        return ApiResponse.ok(adminService.documents(keyword, pageNo, pageSize));
+        return ApiResponse.ok(adminService.documents(keyword, knowledgeBaseId, parseStatus, fileType, pageNo, pageSize));
     }
 
     @GetMapping("/documents/{id}")
@@ -118,9 +123,16 @@ public class AdminController {
     }
 
     @GetMapping("/document-tasks")
-    public ApiResponse<PageResponse<DocumentTaskVO>> tasks(@RequestParam(defaultValue = "1") int pageNo,
+    public ApiResponse<PageResponse<DocumentTaskVO>> tasks(@RequestParam(required = false) TaskStatus status,
+                                                           @RequestParam(defaultValue = "") String keyword,
+                                                           @RequestParam(defaultValue = "1") int pageNo,
                                                            @RequestParam(defaultValue = "10") int pageSize) {
-        return ApiResponse.ok(adminService.tasks(pageNo, pageSize));
+        return ApiResponse.ok(adminService.tasks(status, keyword, pageNo, pageSize));
+    }
+
+    @PostMapping("/document-tasks/{id}/retry")
+    public ApiResponse<DocumentTaskVO> retryTask(@PathVariable Long id) {
+        return ApiResponse.ok(adminService.retryTask(id));
     }
 
     @GetMapping("/document-tasks/{id}")

@@ -3,6 +3,8 @@ package com.knowflow.controller;
 import com.knowflow.common.ApiResponse;
 import com.knowflow.common.PageResponse;
 import com.knowflow.dto.RenameDocumentRequest;
+import com.knowflow.enums.DocumentParseStatus;
+import com.knowflow.enums.EmbeddingStatus;
 import com.knowflow.service.DocumentService;
 import com.knowflow.vo.DocumentVO;
 import jakarta.validation.Valid;
@@ -39,11 +41,13 @@ public class DocumentController {
     }
 
     @GetMapping
-    public ApiResponse<PageResponse<DocumentVO>> page(@RequestParam Long knowledgeBaseId,
+    public ApiResponse<PageResponse<DocumentVO>> page(@RequestParam(required = false) Long knowledgeBaseId,
                                                       @RequestParam(defaultValue = "") String keyword,
+                                                      @RequestParam(required = false) DocumentParseStatus parseStatus,
+                                                      @RequestParam(required = false) EmbeddingStatus embeddingStatus,
                                                       @RequestParam(defaultValue = "1") int pageNo,
                                                       @RequestParam(defaultValue = "10") int pageSize) {
-        return ApiResponse.ok(documentService.page(knowledgeBaseId, keyword, pageNo, pageSize));
+        return ApiResponse.ok(documentService.page(knowledgeBaseId, keyword, parseStatus, embeddingStatus, pageNo, pageSize));
     }
 
     @GetMapping("/{id}")

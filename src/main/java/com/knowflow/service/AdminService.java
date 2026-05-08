@@ -7,6 +7,7 @@ import com.knowflow.entity.DocumentProcessTask;
 import com.knowflow.entity.User;
 import com.knowflow.enums.DocumentParseStatus;
 import com.knowflow.enums.KnowledgeBaseStatus;
+import com.knowflow.enums.TaskStatus;
 import com.knowflow.enums.UserStatus;
 import com.knowflow.mapper.DocumentProcessTaskRepository;
 import com.knowflow.mapper.DocumentRepository;
@@ -133,8 +134,23 @@ public class AdminService {
 
     public PageResponse<DocumentVO> documents(String keyword, int pageNo, int pageSize) {
         SecurityUtils.requireAdmin();
+        return documents(keyword, null, null, null, pageNo, pageSize);
+    }
+
+    public PageResponse<DocumentVO> documents(String keyword,
+                                              Long knowledgeBaseId,
+                                              DocumentParseStatus parseStatus,
+                                              String fileType,
+                                              int pageNo,
+                                              int pageSize) {
+        SecurityUtils.requireAdmin();
         return PageResponse.of(documentRepository
-                .findByDeletedFalseAndNameContaining(keyword == null ? "" : keyword, new Page<>(pageNo, pageSize))
+                .findByAdminFilters(
+                        keyword == null ? "" : keyword,
+                        knowledgeBaseId,
+                        parseStatus,
+                        fileType,
+                        new Page<>(pageNo, pageSize))
                 .convert(DocumentVO::from));
     }
 
@@ -159,8 +175,13 @@ public class AdminService {
 
     public PageResponse<DocumentTaskVO> tasks(int pageNo, int pageSize) {
         SecurityUtils.requireAdmin();
+        return tasks(null, "", pageNo, pageSize);
+    }
+
+    public PageResponse<DocumentTaskVO> tasks(TaskStatus status, String keyword, int pageNo, int pageSize) {
+        SecurityUtils.requireAdmin();
         return PageResponse.of(taskRepository
-                .findByDeletedFalse(new Page<>(pageNo, pageSize))
+                .findByFilters(status, keyword == null ? "" : keyword, new Page<>(pageNo, pageSize))
                 .convert(DocumentTaskVO::from));
     }
 
@@ -171,5 +192,27 @@ public class AdminService {
             throw BusinessException.notFound("任务不存在");
         }
         return DocumentTaskVO.from(task);
+    }
+
+    @Transactional
+    public DocumentTaskVO retryTask(Long id) {
+        SecurityUtils.requireAdmin();
+        DocumentProcessTask task = taskRepository.selectById(id);
+        if (task == null) {
+            throw BusinessException.notFound("任务不存在");
+        }
+        Long documentId = task.getDocumentId();
+        if (documentId == null) {
+            throw BusinessException.badRequest("任务未关联文档，无法重试");
+        }
+        if (taskRepository.existsActiveByDocumentId(documentId)) {
+            throw BusinessException.badRequest("当前文档已有处理中任务，请稍后再试");
+        }
+
+        documentService.adminRetry(documentId);
+        DocumentProcessTask created = taskRepository.findLatestByDocumentId(documentId)
+                .orElseThrow(() -> BusinessException.badRequest("重试任务创建失败"));
+        operationLogService.record("RETRY_DOCUMENT_TASK", "DOCUMENT_TASK", id, "retry by admin, new taskId=" + created.getId());
+        return DocumentTaskVO.from(created);
     }
 }

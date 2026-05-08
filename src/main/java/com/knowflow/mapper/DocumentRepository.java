@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.knowflow.entity.Document;
 import com.knowflow.enums.DocumentParseStatus;
+import com.knowflow.enums.EmbeddingStatus;
 import java.util.List;
 import java.util.Optional;
 
@@ -30,8 +31,36 @@ public interface DocumentRepository extends BaseMapper<Document> {
                 .orderByDesc(Document::getCreateTime));
     }
 
+    default Page<Document> findByUserIdAndFiltersAndDeletedFalse(Long userId,
+                                                                 Long knowledgeBaseId,
+                                                                 String keyword,
+                                                                 DocumentParseStatus parseStatus,
+                                                                 EmbeddingStatus embeddingStatus,
+                                                                 Page<Document> page) {
+        return selectPage(page, new LambdaQueryWrapper<Document>()
+                .eq(Document::getUserId, userId)
+                .eq(knowledgeBaseId != null, Document::getKnowledgeBaseId, knowledgeBaseId)
+                .eq(parseStatus != null, Document::getParseStatus, parseStatus)
+                .eq(embeddingStatus != null, Document::getEmbeddingStatus, embeddingStatus)
+                .like(keyword != null && !keyword.isBlank(), Document::getName, keyword)
+                .orderByDesc(Document::getCreateTime));
+    }
+
     default Page<Document> findByDeletedFalseAndNameContaining(String keyword, Page<Document> page) {
         return selectPage(page, new LambdaQueryWrapper<Document>()
+                .like(keyword != null && !keyword.isBlank(), Document::getName, keyword)
+                .orderByDesc(Document::getCreateTime));
+    }
+
+    default Page<Document> findByAdminFilters(String keyword,
+                                              Long knowledgeBaseId,
+                                              DocumentParseStatus parseStatus,
+                                              String fileType,
+                                              Page<Document> page) {
+        return selectPage(page, new LambdaQueryWrapper<Document>()
+                .eq(knowledgeBaseId != null, Document::getKnowledgeBaseId, knowledgeBaseId)
+                .eq(parseStatus != null, Document::getParseStatus, parseStatus)
+                .eq(fileType != null && !fileType.isBlank(), Document::getFileType, fileType)
                 .like(keyword != null && !keyword.isBlank(), Document::getName, keyword)
                 .orderByDesc(Document::getCreateTime));
     }
