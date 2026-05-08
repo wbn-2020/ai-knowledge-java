@@ -22,6 +22,7 @@ import com.knowflow.vo.DocumentTaskVO;
 import com.knowflow.vo.DocumentVO;
 import com.knowflow.vo.KnowledgeBaseVO;
 import com.knowflow.vo.UserVO;
+import java.util.List;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -101,9 +102,24 @@ public class AdminService {
     }
 
     public PageResponse<KnowledgeBaseVO> knowledgeBases(String keyword, int pageNo, int pageSize) {
+        return knowledgeBases(keyword, "", null, pageNo, pageSize);
+    }
+
+    public PageResponse<KnowledgeBaseVO> knowledgeBases(String keyword,
+                                                        String username,
+                                                        KnowledgeBaseStatus status,
+                                                        int pageNo,
+                                                        int pageSize) {
         SecurityUtils.requireAdmin();
+        List<Long> userIds = null;
+        if (username != null && !username.isBlank()) {
+            userIds = userRepository.findIdsByUsernameContaining(username);
+            if (userIds.isEmpty()) {
+                return PageResponse.of(new Page<>(pageNo, pageSize));
+            }
+        }
         return PageResponse.of(knowledgeBaseRepository
-                .findByDeletedFalseAndNameContaining(keyword == null ? "" : keyword, new Page<>(pageNo, pageSize))
+                .findByAdminFilters(keyword == null ? "" : keyword, status, userIds, new Page<>(pageNo, pageSize))
                 .convert(KnowledgeBaseVO::from));
     }
 

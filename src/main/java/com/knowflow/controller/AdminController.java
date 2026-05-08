@@ -75,9 +75,11 @@ public class AdminController {
 
     @GetMapping("/knowledge-bases")
     public ApiResponse<PageResponse<KnowledgeBaseVO>> knowledgeBases(@RequestParam(defaultValue = "") String keyword,
+                                                                      @RequestParam(defaultValue = "") String username,
+                                                                      @RequestParam(required = false) KnowledgeBaseStatus status,
                                                                       @RequestParam(defaultValue = "1") int pageNo,
                                                                       @RequestParam(defaultValue = "10") int pageSize) {
-        return ApiResponse.ok(adminService.knowledgeBases(keyword, pageNo, pageSize));
+        return ApiResponse.ok(adminService.knowledgeBases(keyword, username, status, pageNo, pageSize));
     }
 
     @GetMapping("/knowledge-bases/{id}")
