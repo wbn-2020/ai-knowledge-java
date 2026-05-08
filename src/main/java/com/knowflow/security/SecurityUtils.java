@@ -1,7 +1,7 @@
 package com.knowflow.security;
 
 import com.knowflow.common.BusinessException;
-import com.knowflow.common.enums.UserRole;
+import com.knowflow.enums.UserRole;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 

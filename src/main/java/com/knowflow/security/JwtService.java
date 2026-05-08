@@ -1,6 +1,6 @@
 package com.knowflow.security;
 
-import com.knowflow.common.enums.UserRole;
+import com.knowflow.enums.UserRole;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;

@@ -1,0 +1,41 @@
+package com.knowflow.entity;
+
+import com.baomidou.mybatisplus.annotation.TableName;
+import com.knowflow.common.BaseEntity;
+import com.knowflow.enums.DocumentParseStatus;
+import com.knowflow.enums.EmbeddingStatus;
+
+@TableName("document")
+public class Document extends BaseEntity {
+    private Long userId;
+    private Long knowledgeBaseId;
+    private String name;
+    private String originalName;
+    private String fileType;
+    private Long fileSize;
+    private String filePath;
+    private DocumentParseStatus parseStatus = DocumentParseStatus.PENDING;
+    private EmbeddingStatus embeddingStatus = EmbeddingStatus.PENDING;
+    private String errorMessage;
+
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
+    public Long getKnowledgeBaseId() { return knowledgeBaseId; }
+    public void setKnowledgeBaseId(Long knowledgeBaseId) { this.knowledgeBaseId = knowledgeBaseId; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public String getOriginalName() { return originalName; }
+    public void setOriginalName(String originalName) { this.originalName = originalName; }
+    public String getFileType() { return fileType; }
+    public void setFileType(String fileType) { this.fileType = fileType; }
+    public Long getFileSize() { return fileSize; }
+    public void setFileSize(Long fileSize) { this.fileSize = fileSize; }
+    public String getFilePath() { return filePath; }
+    public void setFilePath(String filePath) { this.filePath = filePath; }
+    public DocumentParseStatus getParseStatus() { return parseStatus; }
+    public void setParseStatus(DocumentParseStatus parseStatus) { this.parseStatus = parseStatus; }
+    public EmbeddingStatus getEmbeddingStatus() { return embeddingStatus; }
+    public void setEmbeddingStatus(EmbeddingStatus embeddingStatus) { this.embeddingStatus = embeddingStatus; }
+    public String getErrorMessage() { return errorMessage; }
+    public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
+}

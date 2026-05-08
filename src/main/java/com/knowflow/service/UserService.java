@@ -1,0 +1,62 @@
+package com.knowflow.service;
+
+import com.knowflow.common.BusinessException;
+import com.knowflow.dto.ChangePasswordRequest;
+import com.knowflow.dto.UpdateProfileRequest;
+import com.knowflow.entity.User;
+import com.knowflow.mapper.UserRepository;
+import com.knowflow.security.SecurityUtils;
+import com.knowflow.vo.UserVO;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+
+@Service
+public class UserService {
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+
+    public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+    }
+
+    public UserVO current() {
+        return UserVO.from(getCurrentUserEntity());
+    }
+
+    @Transactional
+    public UserVO updateProfile(UpdateProfileRequest request) {
+        User user = getCurrentUserEntity();
+        if (StringUtils.hasText(request.email()) && !request.email().equals(user.getEmail())
+                && userRepository.existsByEmailAndDeletedFalse(request.email())) {
+            throw BusinessException.badRequest("邮箱已存在");
+        }
+        user.setNickname(request.nickname());
+        user.setEmail(request.email());
+        user.setAvatar(request.avatar());
+        user.setBio(request.bio());
+        userRepository.updateById(user);
+        return UserVO.from(user);
+    }
+
+    @Transactional
+    public void changePassword(ChangePasswordRequest request) {
+        if (!request.newPassword().equals(request.confirmPassword())) {
+            throw BusinessException.badRequest("两次密码不一致");
+        }
+        User user = getCurrentUserEntity();
+        if (!passwordEncoder.matches(request.oldPassword(), user.getPassword())) {
+            throw BusinessException.badRequest("旧密码错误");
+        }
+        user.setPassword(passwordEncoder.encode(request.newPassword()));
+        userRepository.updateById(user);
+    }
+
+    private User getCurrentUserEntity() {
+        return userRepository.findByIdAndDeletedFalse(SecurityUtils.getCurrentUserId())
+                .orElseThrow(() -> BusinessException.unauthorized("用户不存在"));
+    }
+}

@@ -6,7 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableAsync;
 
 @EnableAsync
-@MapperScan("com.knowflow.modules")
+@MapperScan("com.knowflow.mapper")
 @SpringBootApplication
 public class KnowFlowApplication {
     public static void main(String[] args) {
