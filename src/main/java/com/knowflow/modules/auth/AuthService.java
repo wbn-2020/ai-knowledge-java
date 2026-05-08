@@ -6,6 +6,7 @@ import com.knowflow.common.enums.UserStatus;
 import com.knowflow.modules.auth.dto.LoginRequest;
 import com.knowflow.modules.auth.dto.LoginVO;
 import com.knowflow.modules.auth.dto.RegisterRequest;
+import com.knowflow.modules.log.LogService;
 import com.knowflow.modules.user.User;
 import com.knowflow.modules.user.UserRepository;
 import com.knowflow.modules.user.UserVO;
@@ -20,11 +21,13 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final LogService logService;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService) {
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService, LogService logService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.logService = logService;
     }
 
     @Transactional
@@ -55,8 +58,10 @@ public class AuthService {
             throw BusinessException.forbidden("账号已禁用");
         }
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
+            logService.recordLogin(user.getId(), request.account(), false, "密码错误");
             throw BusinessException.badRequest("账号或密码错误");
         }
+        logService.recordLogin(user.getId(), request.account(), true, "登录成功");
         return toLoginVO(user);
     }
 
@@ -69,8 +74,10 @@ public class AuthService {
             throw BusinessException.forbidden("账号已禁用");
         }
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
+            logService.recordLogin(user.getId(), request.account(), false, "密码错误");
             throw BusinessException.badRequest("账号或密码错误");
         }
+        logService.recordLogin(user.getId(), request.account(), true, "管理员登录成功");
         return toLoginVO(user);
     }
 

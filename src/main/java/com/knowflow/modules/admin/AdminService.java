@@ -7,10 +7,13 @@ import com.knowflow.common.enums.DocumentParseStatus;
 import com.knowflow.common.enums.KnowledgeBaseStatus;
 import com.knowflow.common.enums.UserStatus;
 import com.knowflow.modules.document.DocumentProcessTaskRepository;
+import com.knowflow.modules.document.DocumentProcessTask;
 import com.knowflow.modules.document.DocumentRepository;
+import com.knowflow.modules.document.DocumentService;
 import com.knowflow.modules.document.DocumentTaskVO;
 import com.knowflow.modules.document.DocumentVO;
 import com.knowflow.modules.knowledge.KnowledgeBaseRepository;
+import com.knowflow.modules.knowledge.KnowledgeBaseService;
 import com.knowflow.modules.knowledge.KnowledgeBaseVO;
 import com.knowflow.modules.log.OperationLogService;
 import com.knowflow.modules.user.User;
@@ -26,17 +29,23 @@ public class AdminService {
     private final KnowledgeBaseRepository knowledgeBaseRepository;
     private final DocumentRepository documentRepository;
     private final DocumentProcessTaskRepository taskRepository;
+    private final KnowledgeBaseService knowledgeBaseService;
+    private final DocumentService documentService;
     private final OperationLogService operationLogService;
 
     public AdminService(UserRepository userRepository,
                         KnowledgeBaseRepository knowledgeBaseRepository,
                         DocumentRepository documentRepository,
                         DocumentProcessTaskRepository taskRepository,
+                        KnowledgeBaseService knowledgeBaseService,
+                        DocumentService documentService,
                         OperationLogService operationLogService) {
         this.userRepository = userRepository;
         this.knowledgeBaseRepository = knowledgeBaseRepository;
         this.documentRepository = documentRepository;
         this.taskRepository = taskRepository;
+        this.knowledgeBaseService = knowledgeBaseService;
+        this.documentService = documentService;
         this.operationLogService = operationLogService;
     }
 
@@ -76,6 +85,12 @@ public class AdminService {
                 .convert(KnowledgeBaseVO::from));
     }
 
+    public KnowledgeBaseVO knowledgeBaseDetail(Long id) {
+        SecurityUtils.requireAdmin();
+        return knowledgeBaseRepository.findByIdAndDeletedFalse(id).map(KnowledgeBaseVO::from)
+                .orElseThrow(() -> BusinessException.notFound("知识库不存在"));
+    }
+
     public PageResponse<DocumentVO> documents(String keyword, int pageNo, int pageSize) {
         SecurityUtils.requireAdmin();
         return PageResponse.of(documentRepository
@@ -83,10 +98,25 @@ public class AdminService {
                 .convert(DocumentVO::from));
     }
 
+    public DocumentVO documentDetail(Long id) {
+        SecurityUtils.requireAdmin();
+        return documentRepository.findByIdAndDeletedFalse(id).map(DocumentVO::from)
+                .orElseThrow(() -> BusinessException.notFound("文档不存在"));
+    }
+
     public PageResponse<DocumentTaskVO> tasks(int pageNo, int pageSize) {
         SecurityUtils.requireAdmin();
         return PageResponse.of(taskRepository
                 .findByDeletedFalse(new Page<>(pageNo, pageSize))
                 .convert(DocumentTaskVO::from));
+    }
+
+    public DocumentTaskVO taskDetail(Long id) {
+        SecurityUtils.requireAdmin();
+        DocumentProcessTask task = taskRepository.selectById(id);
+        if (task == null) {
+            throw BusinessException.notFound("任务不存在");
+        }
+        return DocumentTaskVO.from(task);
     }
 }

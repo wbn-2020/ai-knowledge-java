@@ -61,6 +61,11 @@ public class AdminController {
         return ApiResponse.ok(adminService.knowledgeBases(keyword, pageNo, pageSize));
     }
 
+    @GetMapping("/knowledge-bases/{id}")
+    public ApiResponse<KnowledgeBaseVO> knowledgeBaseDetail(@PathVariable Long id) {
+        return ApiResponse.ok(adminService.knowledgeBaseDetail(id));
+    }
+
     @GetMapping("/documents")
     public ApiResponse<PageResponse<DocumentVO>> documents(@RequestParam(defaultValue = "") String keyword,
                                                            @RequestParam(defaultValue = "1") int pageNo,
@@ -68,9 +73,19 @@ public class AdminController {
         return ApiResponse.ok(adminService.documents(keyword, pageNo, pageSize));
     }
 
+    @GetMapping("/documents/{id}")
+    public ApiResponse<DocumentVO> documentDetail(@PathVariable Long id) {
+        return ApiResponse.ok(adminService.documentDetail(id));
+    }
+
     @GetMapping("/document-tasks")
     public ApiResponse<PageResponse<DocumentTaskVO>> tasks(@RequestParam(defaultValue = "1") int pageNo,
                                                            @RequestParam(defaultValue = "10") int pageSize) {
         return ApiResponse.ok(adminService.tasks(pageNo, pageSize));
+    }
+
+    @GetMapping("/document-tasks/{id}")
+    public ApiResponse<DocumentTaskVO> taskDetail(@PathVariable Long id) {
+        return ApiResponse.ok(adminService.taskDetail(id));
     }
 }

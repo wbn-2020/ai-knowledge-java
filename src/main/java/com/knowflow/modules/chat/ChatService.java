@@ -14,6 +14,7 @@ import com.knowflow.modules.document.DocumentChunkRepository;
 import com.knowflow.modules.document.DocumentRepository;
 import com.knowflow.modules.knowledge.KnowledgeBase;
 import com.knowflow.modules.knowledge.KnowledgeBaseService;
+import com.knowflow.modules.log.LogService;
 import com.knowflow.security.SecurityUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,7 @@ public class ChatService {
     private final DocumentRepository documentRepository;
     private final EmbeddingClient embeddingClient;
     private final LlmClient llmClient;
+    private final LogService logService;
     private final int topK;
     private final double minScore;
 
@@ -45,6 +47,7 @@ public class ChatService {
                        DocumentRepository documentRepository,
                        EmbeddingClient embeddingClient,
                        LlmClient llmClient,
+                       LogService logService,
                        @Value("${knowflow.rag.top-k}") int topK,
                        @Value("${knowflow.rag.min-score}") double minScore) {
         this.knowledgeBaseService = knowledgeBaseService;
@@ -55,6 +58,7 @@ public class ChatService {
         this.documentRepository = documentRepository;
         this.embeddingClient = embeddingClient;
         this.llmClient = llmClient;
+        this.logService = logService;
         this.topK = topK;
         this.minScore = minScore;
     }
@@ -70,9 +74,19 @@ public class ChatService {
         saveMessage(userId, session.getId(), MessageRole.USER, request.question(), null);
 
         List<ScoredChunk> scoredChunks = retrieve(userId, request.knowledgeBaseId(), request.question());
-        String answer = scoredChunks.isEmpty()
-                ? "当前知识库中没有找到足够依据。"
-                : llmClient.complete(buildPrompt(request.question(), scoredChunks));
+        String answer;
+        if (scoredChunks.isEmpty()) {
+            answer = "当前知识库中没有找到足够依据。";
+        } else {
+            long start = System.currentTimeMillis();
+            try {
+                answer = llmClient.complete(buildPrompt(request.question(), scoredChunks));
+                logService.recordAiCall(userId, "deepseek", "CHAT", System.currentTimeMillis() - start, true, null);
+            } catch (RuntimeException ex) {
+                logService.recordAiCall(userId, "deepseek", "CHAT", System.currentTimeMillis() - start, false, ex.getMessage());
+                throw ex;
+            }
+        }
 
         ChatMessage assistantMessage = saveMessage(userId, session.getId(), MessageRole.ASSISTANT, answer, "mock-llm");
         List<ReferenceVO> references = scoredChunks.stream()

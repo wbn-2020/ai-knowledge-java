@@ -2,7 +2,7 @@
 
 KnowFlow AI backend MVP for a personal knowledge base and RAG question answering platform.
 
-Backend stack: Spring Boot 3, Java 17, MyBatis-Plus, MySQL 8, Spring Security, JWT, PDFBox and Apache POI.
+Backend stack: Spring Boot 3, Java 17, MyBatis-Plus, MySQL 8, Spring Security, JWT, DeepSeek Chat Completions, PDFBox and Apache POI.
 
 ## Run
 
@@ -14,7 +14,13 @@ mysql -u<username> -p<password> --default-character-set=utf8mb4 --execute="sourc
 
 2. Adjust `src/main/resources/application.yml` if your MySQL username/password differ.
 
-3. Start:
+3. Configure DeepSeek API key:
+
+```bash
+export DEEPSEEK_API_KEY=your-api-key
+```
+
+4. Start:
 
 ```bash
 mvn spring-boot:run

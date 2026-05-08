@@ -1,11 +1,13 @@
 package com.knowflow.infrastructure.ai;
 
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
+@Primary
 @Component
 public class MockEmbeddingClient implements EmbeddingClient {
     private static final int DIMENSION = 64;

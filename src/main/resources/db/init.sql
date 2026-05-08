@@ -166,7 +166,60 @@ CREATE TABLE IF NOT EXISTS ai_call_log (
   INDEX idx_ai_call_type (call_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS ai_model_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(128) NOT NULL,
+  provider VARCHAR(64) NOT NULL,
+  base_url VARCHAR(255) NOT NULL,
+  api_key VARCHAR(255),
+  model_name VARCHAR(128) NOT NULL,
+  enabled BIT NOT NULL DEFAULT 1,
+  default_model BIT NOT NULL DEFAULT 0,
+  thinking_enabled BIT NOT NULL DEFAULT 1,
+  max_tokens INT,
+  temperature DOUBLE,
+  description VARCHAR(512),
+  create_time DATETIME NOT NULL,
+  update_time DATETIME NOT NULL,
+  deleted BIT NOT NULL DEFAULT 0,
+  INDEX idx_ai_model_provider (provider),
+  INDEX idx_ai_model_default (default_model)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS prompt_template (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  code VARCHAR(64) NOT NULL UNIQUE,
+  name VARCHAR(128) NOT NULL,
+  content LONGTEXT NOT NULL,
+  scene VARCHAR(64) NOT NULL,
+  enabled BIT NOT NULL DEFAULT 1,
+  default_template BIT NOT NULL DEFAULT 0,
+  description VARCHAR(512),
+  create_time DATETIME NOT NULL,
+  update_time DATETIME NOT NULL,
+  deleted BIT NOT NULL DEFAULT 0,
+  INDEX idx_prompt_scene (scene)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS system_config (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  config_key VARCHAR(128) NOT NULL UNIQUE,
+  config_value VARCHAR(1024) NOT NULL,
+  description VARCHAR(512),
+  create_time DATETIME NOT NULL,
+  update_time DATETIME NOT NULL,
+  deleted BIT NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- password: admin123
 INSERT INTO sys_user (username, email, password, nickname, status, role, create_time, update_time, deleted)
-SELECT 'admin', 'admin@knowflow.local', '$2a$10$bhW3J..X41KH56.YrkCMcu.TTaEdec3CPrnSPyf193dFoRFVKHPB2', '管理员', 'ENABLED', 'ADMIN', NOW(), NOW(), 0
+SELECT 'admin', 'admin@knowflow.local', '$2a$10$bhW3J..X41KH56.YrkCMcu.TTaEdec3CPrnSPyf193dFoRFVKHPB2', '???', 'ENABLED', 'ADMIN', NOW(), NOW(), 0
 WHERE NOT EXISTS (SELECT 1 FROM sys_user WHERE username = 'admin');
+
+INSERT INTO ai_model_config (name, provider, base_url, api_key, model_name, enabled, default_model, thinking_enabled, description, create_time, update_time, deleted)
+SELECT 'DeepSeek Reasoner', 'DEEPSEEK', 'https://api.deepseek.com', NULL, 'deepseek-reasoner', 1, 1, 1, 'Default DeepSeek model. Configure API key with DEEPSEEK_API_KEY or admin API.', NOW(), NOW(), 0
+WHERE NOT EXISTS (SELECT 1 FROM ai_model_config WHERE provider = 'DEEPSEEK' AND model_name = 'deepseek-reasoner');
+
+INSERT INTO prompt_template (code, name, content, scene, enabled, default_template, description, create_time, update_time, deleted)
+SELECT 'rag_default', '?????????', '?? KnowFlow AI ???????????????????????????????????????????????????', 'RAG', 1, 1, 'Default RAG prompt', NOW(), NOW(), 0
+WHERE NOT EXISTS (SELECT 1 FROM prompt_template WHERE code = 'rag_default');
