@@ -2,6 +2,13 @@ package com.knowflow.modules.document;
 
 import com.knowflow.common.ApiResponse;
 import com.knowflow.common.PageResponse;
+import com.knowflow.modules.document.dto.RenameDocumentRequest;
+import jakarta.validation.Valid;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -12,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.nio.file.Path;
 
 @RestController
 @RequestMapping("/documents")
@@ -44,6 +52,22 @@ public class DocumentController {
     public ApiResponse<Void> delete(@PathVariable Long id) {
         documentService.delete(id);
         return ApiResponse.ok();
+    }
+
+    @PutMapping("/{id}/rename")
+    public ApiResponse<DocumentVO> rename(@PathVariable Long id, @Valid @RequestBody RenameDocumentRequest request) {
+        return ApiResponse.ok(documentService.rename(id, request.name()));
+    }
+
+    @GetMapping("/{id}/preview")
+    public ApiResponse<String> preview(@PathVariable Long id) {
+        return ApiResponse.ok(documentService.preview(id));
+    }
+
+    @GetMapping("/{id}/download")
+    public ResponseEntity<Resource> download(@PathVariable Long id) {
+        Path path = documentService.downloadPath(id);
+        return ResponseEntity.ok(new FileSystemResource(path));
     }
 
     @PostMapping("/{id}/retry")

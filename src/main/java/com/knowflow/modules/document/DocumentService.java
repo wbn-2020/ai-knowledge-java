@@ -19,6 +19,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -100,11 +101,42 @@ public class DocumentService {
     }
 
     @Transactional
+    public DocumentVO rename(Long id, String name) {
+        Document document = requireOwned(id);
+        document.setName(name);
+        documentRepository.updateById(document);
+        return DocumentVO.from(document);
+    }
+
+    public String preview(Long id) {
+        requireOwned(id);
+        List<DocumentChunk> chunks = chunkRepository.findByDocumentIdAndDeletedFalseOrderByChunkIndexAsc(id);
+        StringBuilder builder = new StringBuilder();
+        for (DocumentChunk chunk : chunks.stream().limit(20).toList()) {
+            builder.append(chunk.getContent()).append("\n\n");
+        }
+        return builder.toString();
+    }
+
+    public Path downloadPath(Long id) {
+        Document document = requireOwned(id);
+        Path path = Path.of(document.getFilePath()).toAbsolutePath().normalize();
+        if (!Files.exists(path)) {
+            throw BusinessException.notFound("file not found");
+        }
+        return path;
+    }
+
+    @Transactional
     public void delete(Long id) {
         Document document = requireOwned(id);
         document.setDeleted(true);
         documentRepository.updateById(document);
         chunkRepository.deleteByDocumentId(id);
+        try {
+            Files.deleteIfExists(Path.of(document.getFilePath()));
+        } catch (IOException ignored) {
+        }
         knowledgeBaseRepository.findByIdAndUserIdAndDeletedFalse(document.getKnowledgeBaseId(), document.getUserId())
                 .ifPresent(kb -> {
                     kb.setDocumentCount(Math.max(0, kb.getDocumentCount() - 1));
@@ -128,6 +160,43 @@ public class DocumentService {
     public Document requireOwned(Long id) {
         return documentRepository.findByIdAndUserIdAndDeletedFalse(id, SecurityUtils.getCurrentUserId())
                 .orElseThrow(() -> BusinessException.notFound("文档不存在"));
+    }
+
+    public DocumentVO adminDetail(Long id) {
+        return documentRepository.findByIdAndDeletedFalse(id).map(DocumentVO::from)
+                .orElseThrow(() -> BusinessException.notFound("document not found"));
+    }
+
+    @Transactional
+    public DocumentVO adminRetry(Long id) {
+        Document document = documentRepository.findByIdAndDeletedFalse(id)
+                .orElseThrow(() -> BusinessException.notFound("document not found"));
+        chunkRepository.deleteByDocumentId(id);
+        document.setParseStatus(DocumentParseStatus.PENDING);
+        document.setEmbeddingStatus(EmbeddingStatus.PENDING);
+        document.setErrorMessage(null);
+        documentRepository.updateById(document);
+        DocumentProcessTask task = createTask(document);
+        processService.processAsync(task.getId());
+        return DocumentVO.from(document);
+    }
+
+    @Transactional
+    public void adminDelete(Long id) {
+        Document document = documentRepository.findByIdAndDeletedFalse(id)
+                .orElseThrow(() -> BusinessException.notFound("document not found"));
+        document.setDeleted(true);
+        documentRepository.updateById(document);
+        chunkRepository.deleteByDocumentId(id);
+        try {
+            Files.deleteIfExists(Path.of(document.getFilePath()));
+        } catch (IOException ignored) {
+        }
+        knowledgeBaseRepository.findByIdAndUserIdAndDeletedFalse(document.getKnowledgeBaseId(), document.getUserId())
+                .ifPresent(kb -> {
+                    kb.setDocumentCount(Math.max(0, kb.getDocumentCount() - 1));
+                    knowledgeBaseRepository.updateById(kb);
+                });
     }
 
     private DocumentProcessTask createTask(Document document) {

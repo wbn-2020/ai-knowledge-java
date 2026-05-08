@@ -16,7 +16,7 @@ import java.util.Map;
 
 @Component
 public class DeepSeekLlmClient implements LlmClient {
-    private static final String NO_EVIDENCE = "当前知识库中没有找到足够依据。";
+    private static final String NO_EVIDENCE = "The current knowledge base has no sufficient evidence.";
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
@@ -36,7 +36,7 @@ public class DeepSeekLlmClient implements LlmClient {
     @Override
     public String complete(String prompt) {
         if (!StringUtils.hasText(apiKey)) {
-            throw BusinessException.badRequest("DeepSeek API Key 未配置");
+            throw BusinessException.badRequest("DeepSeek API key is not configured");
         }
         Map<String, Object> body = new HashMap<>();
         body.put("model", model);
@@ -61,7 +61,7 @@ public class DeepSeekLlmClient implements LlmClient {
             }
             return NO_EVIDENCE;
         } catch (Exception ex) {
-            throw BusinessException.badRequest("DeepSeek 响应解析失败");
+            throw BusinessException.badRequest("Failed to parse DeepSeek response");
         }
     }
 }

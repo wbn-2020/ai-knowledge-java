@@ -21,6 +21,7 @@ import com.knowflow.modules.user.UserRepository;
 import com.knowflow.modules.user.UserVO;
 import com.knowflow.security.SecurityUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -32,6 +33,7 @@ public class AdminService {
     private final KnowledgeBaseService knowledgeBaseService;
     private final DocumentService documentService;
     private final OperationLogService operationLogService;
+    private final PasswordEncoder passwordEncoder;
 
     public AdminService(UserRepository userRepository,
                         KnowledgeBaseRepository knowledgeBaseRepository,
@@ -39,7 +41,8 @@ public class AdminService {
                         DocumentProcessTaskRepository taskRepository,
                         KnowledgeBaseService knowledgeBaseService,
                         DocumentService documentService,
-                        OperationLogService operationLogService) {
+                        OperationLogService operationLogService,
+                        PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.knowledgeBaseRepository = knowledgeBaseRepository;
         this.documentRepository = documentRepository;
@@ -47,6 +50,7 @@ public class AdminService {
         this.knowledgeBaseService = knowledgeBaseService;
         this.documentService = documentService;
         this.operationLogService = operationLogService;
+        this.passwordEncoder = passwordEncoder;
     }
 
     public AdminOverviewVO overview() {
@@ -68,6 +72,12 @@ public class AdminService {
         return PageResponse.of(page.convert(UserVO::from));
     }
 
+    public UserVO userDetail(Long userId) {
+        SecurityUtils.requireAdmin();
+        return userRepository.findByIdAndDeletedFalse(userId).map(UserVO::from)
+                .orElseThrow(() -> BusinessException.notFound("user not found"));
+    }
+
     @Transactional
     public UserVO setUserStatus(Long userId, UserStatus status) {
         SecurityUtils.requireAdmin();
@@ -76,6 +86,15 @@ public class AdminService {
         userRepository.updateById(user);
         operationLogService.record("SET_USER_STATUS", "USER", userId, status.name());
         return UserVO.from(user);
+    }
+
+    @Transactional
+    public void resetPassword(Long userId, String password) {
+        SecurityUtils.requireAdmin();
+        User user = userRepository.findByIdAndDeletedFalse(userId).orElseThrow(() -> BusinessException.notFound("user not found"));
+        user.setPassword(passwordEncoder.encode(password));
+        userRepository.updateById(user);
+        operationLogService.record("RESET_PASSWORD", "USER", userId, "reset user password");
     }
 
     public PageResponse<KnowledgeBaseVO> knowledgeBases(String keyword, int pageNo, int pageSize) {
@@ -91,6 +110,25 @@ public class AdminService {
                 .orElseThrow(() -> BusinessException.notFound("知识库不存在"));
     }
 
+    @Transactional
+    public KnowledgeBaseVO setKnowledgeBaseStatus(Long id, KnowledgeBaseStatus status) {
+        SecurityUtils.requireAdmin();
+        var kb = knowledgeBaseRepository.findByIdAndDeletedFalse(id).orElseThrow(() -> BusinessException.notFound("knowledge base not found"));
+        kb.setStatus(status);
+        knowledgeBaseRepository.updateById(kb);
+        operationLogService.record("SET_KB_STATUS", "KNOWLEDGE_BASE", id, status.name());
+        return KnowledgeBaseVO.from(kb);
+    }
+
+    @Transactional
+    public void deleteKnowledgeBase(Long id) {
+        SecurityUtils.requireAdmin();
+        var kb = knowledgeBaseRepository.findByIdAndDeletedFalse(id).orElseThrow(() -> BusinessException.notFound("knowledge base not found"));
+        kb.setDeleted(true);
+        knowledgeBaseRepository.updateById(kb);
+        operationLogService.record("DELETE_KB", "KNOWLEDGE_BASE", id, "admin delete knowledge base");
+    }
+
     public PageResponse<DocumentVO> documents(String keyword, int pageNo, int pageSize) {
         SecurityUtils.requireAdmin();
         return PageResponse.of(documentRepository
@@ -102,6 +140,19 @@ public class AdminService {
         SecurityUtils.requireAdmin();
         return documentRepository.findByIdAndDeletedFalse(id).map(DocumentVO::from)
                 .orElseThrow(() -> BusinessException.notFound("文档不存在"));
+    }
+
+    @Transactional
+    public void deleteDocument(Long id) {
+        SecurityUtils.requireAdmin();
+        documentService.adminDelete(id);
+        operationLogService.record("DELETE_DOCUMENT", "DOCUMENT", id, "admin delete document");
+    }
+
+    @Transactional
+    public DocumentVO retryDocument(Long id) {
+        SecurityUtils.requireAdmin();
+        return documentService.adminRetry(id);
     }
 
     public PageResponse<DocumentTaskVO> tasks(int pageNo, int pageSize) {

@@ -3,6 +3,7 @@ package com.knowflow.modules.admin;
 import com.knowflow.common.ApiResponse;
 import com.knowflow.common.PageResponse;
 import com.knowflow.common.enums.UserStatus;
+import com.knowflow.common.enums.KnowledgeBaseStatus;
 import com.knowflow.modules.auth.AuthService;
 import com.knowflow.modules.auth.dto.LoginRequest;
 import com.knowflow.modules.auth.dto.LoginVO;
@@ -10,7 +11,9 @@ import com.knowflow.modules.document.DocumentTaskVO;
 import com.knowflow.modules.document.DocumentVO;
 import com.knowflow.modules.knowledge.KnowledgeBaseVO;
 import com.knowflow.modules.user.UserVO;
+import com.knowflow.modules.user.dto.ResetPasswordRequest;
 import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -54,6 +57,17 @@ public class AdminController {
         return ApiResponse.ok(adminService.setUserStatus(userId, status));
     }
 
+    @GetMapping("/users/{userId}")
+    public ApiResponse<UserVO> userDetail(@PathVariable Long userId) {
+        return ApiResponse.ok(adminService.userDetail(userId));
+    }
+
+    @PutMapping("/users/{userId}/password")
+    public ApiResponse<Void> resetPassword(@PathVariable Long userId, @Valid @RequestBody ResetPasswordRequest request) {
+        adminService.resetPassword(userId, request.password());
+        return ApiResponse.ok();
+    }
+
     @GetMapping("/knowledge-bases")
     public ApiResponse<PageResponse<KnowledgeBaseVO>> knowledgeBases(@RequestParam(defaultValue = "") String keyword,
                                                                       @RequestParam(defaultValue = "1") int pageNo,
@@ -66,6 +80,17 @@ public class AdminController {
         return ApiResponse.ok(adminService.knowledgeBaseDetail(id));
     }
 
+    @PutMapping("/knowledge-bases/{id}/status")
+    public ApiResponse<KnowledgeBaseVO> setKnowledgeBaseStatus(@PathVariable Long id, @RequestParam KnowledgeBaseStatus status) {
+        return ApiResponse.ok(adminService.setKnowledgeBaseStatus(id, status));
+    }
+
+    @DeleteMapping("/knowledge-bases/{id}")
+    public ApiResponse<Void> deleteKnowledgeBase(@PathVariable Long id) {
+        adminService.deleteKnowledgeBase(id);
+        return ApiResponse.ok();
+    }
+
     @GetMapping("/documents")
     public ApiResponse<PageResponse<DocumentVO>> documents(@RequestParam(defaultValue = "") String keyword,
                                                            @RequestParam(defaultValue = "1") int pageNo,
@@ -76,6 +101,17 @@ public class AdminController {
     @GetMapping("/documents/{id}")
     public ApiResponse<DocumentVO> documentDetail(@PathVariable Long id) {
         return ApiResponse.ok(adminService.documentDetail(id));
+    }
+
+    @DeleteMapping("/documents/{id}")
+    public ApiResponse<Void> deleteDocument(@PathVariable Long id) {
+        adminService.deleteDocument(id);
+        return ApiResponse.ok();
+    }
+
+    @PostMapping("/documents/{id}/retry")
+    public ApiResponse<DocumentVO> retryDocument(@PathVariable Long id) {
+        return ApiResponse.ok(adminService.retryDocument(id));
     }
 
     @GetMapping("/document-tasks")

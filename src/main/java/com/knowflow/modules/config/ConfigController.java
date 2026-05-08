@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/admin/config")
@@ -40,9 +41,25 @@ public class ConfigController {
         return ApiResponse.ok(service.updateModel(id, request));
     }
 
+    @DeleteMapping("/models/{id}")
+    public ApiResponse<Void> deleteModel(@PathVariable Long id) {
+        service.deleteModel(id);
+        return ApiResponse.ok();
+    }
+
+    @PostMapping("/models/{id}/test")
+    public ApiResponse<String> testModel(@PathVariable Long id, @RequestBody(required = false) Map<String, String> request) {
+        return ApiResponse.ok(service.testModel(id, request == null ? null : request.get("prompt")));
+    }
+
     @GetMapping("/prompts")
     public ApiResponse<List<ConfigVO>> prompts() {
         return ApiResponse.ok(service.prompts());
+    }
+
+    @GetMapping("/prompts/{id}")
+    public ApiResponse<ConfigVO> promptDetail(@PathVariable Long id) {
+        return ApiResponse.ok(service.promptDetail(id));
     }
 
     @PostMapping("/prompts")
@@ -61,6 +78,11 @@ public class ConfigController {
         return ApiResponse.ok();
     }
 
+    @PutMapping("/prompts/{id}/enabled")
+    public ApiResponse<ConfigVO> setPromptEnabled(@PathVariable Long id, @RequestBody Map<String, Boolean> request) {
+        return ApiResponse.ok(service.setPromptEnabled(id, Boolean.TRUE.equals(request.get("enabled"))));
+    }
+
     @GetMapping("/system")
     public ApiResponse<List<ConfigVO>> systemConfigs() {
         return ApiResponse.ok(service.systemConfigs());
@@ -69,5 +91,11 @@ public class ConfigController {
     @PostMapping("/system")
     public ApiResponse<ConfigVO> saveSystemConfig(@Valid @RequestBody SystemConfigRequest request) {
         return ApiResponse.ok(service.saveSystemConfig(request));
+    }
+
+    @DeleteMapping("/system/{id}")
+    public ApiResponse<Void> deleteSystemConfig(@PathVariable Long id) {
+        service.deleteSystemConfig(id);
+        return ApiResponse.ok();
     }
 }

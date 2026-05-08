@@ -5,6 +5,9 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.knowflow.common.PageResponse;
 import com.knowflow.security.SecurityUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+import java.time.LocalDateTime;
 
 @Service
 public class LogService {
@@ -18,22 +21,38 @@ public class LogService {
         this.aiCallLogRepository = aiCallLogRepository;
     }
 
-    public PageResponse<LogVO> operationLogs(int pageNo, int pageSize) {
+    public PageResponse<LogVO> operationLogs(String action, Long userId, LocalDateTime startTime, LocalDateTime endTime, int pageNo, int pageSize) {
         SecurityUtils.requireAdmin();
-        return PageResponse.of(operationLogRepository.selectPage(new Page<>(pageNo, pageSize),
-                new LambdaQueryWrapper<OperationLog>().orderByDesc(OperationLog::getCreateTime)).convert(LogVO::from));
+        LambdaQueryWrapper<OperationLog> query = new LambdaQueryWrapper<OperationLog>()
+                .like(StringUtils.hasText(action), OperationLog::getAction, action)
+                .eq(userId != null, OperationLog::getUserId, userId)
+                .ge(startTime != null, OperationLog::getCreateTime, startTime)
+                .le(endTime != null, OperationLog::getCreateTime, endTime)
+                .orderByDesc(OperationLog::getCreateTime);
+        return PageResponse.of(operationLogRepository.selectPage(new Page<>(pageNo, pageSize), query).convert(LogVO::from));
     }
 
-    public PageResponse<LogVO> loginLogs(int pageNo, int pageSize) {
+    public PageResponse<LogVO> loginLogs(String account, Boolean success, LocalDateTime startTime, LocalDateTime endTime, int pageNo, int pageSize) {
         SecurityUtils.requireAdmin();
-        return PageResponse.of(loginLogRepository.selectPage(new Page<>(pageNo, pageSize),
-                new LambdaQueryWrapper<LoginLog>().orderByDesc(LoginLog::getCreateTime)).convert(LogVO::from));
+        LambdaQueryWrapper<LoginLog> query = new LambdaQueryWrapper<LoginLog>()
+                .like(StringUtils.hasText(account), LoginLog::getAccount, account)
+                .eq(success != null, LoginLog::getSuccess, success)
+                .ge(startTime != null, LoginLog::getCreateTime, startTime)
+                .le(endTime != null, LoginLog::getCreateTime, endTime)
+                .orderByDesc(LoginLog::getCreateTime);
+        return PageResponse.of(loginLogRepository.selectPage(new Page<>(pageNo, pageSize), query).convert(LogVO::from));
     }
 
-    public PageResponse<LogVO> aiCallLogs(int pageNo, int pageSize) {
+    public PageResponse<LogVO> aiCallLogs(String modelName, String callType, Boolean success, LocalDateTime startTime, LocalDateTime endTime, int pageNo, int pageSize) {
         SecurityUtils.requireAdmin();
-        return PageResponse.of(aiCallLogRepository.selectPage(new Page<>(pageNo, pageSize),
-                new LambdaQueryWrapper<AiCallLog>().orderByDesc(AiCallLog::getCreateTime)).convert(LogVO::from));
+        LambdaQueryWrapper<AiCallLog> query = new LambdaQueryWrapper<AiCallLog>()
+                .like(StringUtils.hasText(modelName), AiCallLog::getModelName, modelName)
+                .eq(StringUtils.hasText(callType), AiCallLog::getCallType, callType)
+                .eq(success != null, AiCallLog::getSuccess, success)
+                .ge(startTime != null, AiCallLog::getCreateTime, startTime)
+                .le(endTime != null, AiCallLog::getCreateTime, endTime)
+                .orderByDesc(AiCallLog::getCreateTime);
+        return PageResponse.of(aiCallLogRepository.selectPage(new Page<>(pageNo, pageSize), query).convert(LogVO::from));
     }
 
     public void recordAiCall(Long userId, String modelName, String callType, long elapsedMs, boolean success, String failReason) {

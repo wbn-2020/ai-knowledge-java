@@ -124,6 +124,19 @@ CREATE TABLE IF NOT EXISTS chat_message_reference (
   INDEX idx_ref_message (user_id, message_id, deleted)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS chat_feedback (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  message_id BIGINT NOT NULL,
+  feedback_type VARCHAR(32) NOT NULL,
+  reason VARCHAR(512),
+  create_time DATETIME NOT NULL,
+  update_time DATETIME NOT NULL,
+  deleted BIT NOT NULL DEFAULT 0,
+  INDEX idx_feedback_message (message_id),
+  INDEX idx_feedback_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS operation_log (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   user_id BIGINT NOT NULL,
@@ -211,15 +224,97 @@ CREATE TABLE IF NOT EXISTS system_config (
   deleted BIT NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS notification (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  title VARCHAR(128) NOT NULL,
+  content VARCHAR(1024) NOT NULL,
+  read_flag BIT NOT NULL DEFAULT 0,
+  create_time DATETIME NOT NULL,
+  update_time DATETIME NOT NULL,
+  deleted BIT NOT NULL DEFAULT 0,
+  INDEX idx_notification_user (user_id, read_flag)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS announcement (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  title VARCHAR(128) NOT NULL,
+  content VARCHAR(2048) NOT NULL,
+  enabled BIT NOT NULL DEFAULT 1,
+  create_time DATETIME NOT NULL,
+  update_time DATETIME NOT NULL,
+  deleted BIT NOT NULL DEFAULT 0,
+  INDEX idx_announcement_enabled (enabled)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- password: admin123
 INSERT INTO sys_user (username, email, password, nickname, status, role, create_time, update_time, deleted)
-SELECT 'admin', 'admin@knowflow.local', '$2a$10$bhW3J..X41KH56.YrkCMcu.TTaEdec3CPrnSPyf193dFoRFVKHPB2', '???', 'ENABLED', 'ADMIN', NOW(), NOW(), 0
+SELECT 'admin', 'admin@knowflow.local', '$2a$10$bhW3J..X41KH56.YrkCMcu.TTaEdec3CPrnSPyf193dFoRFVKHPB2', 'admin', 'ENABLED', 'ADMIN', NOW(), NOW(), 0
 WHERE NOT EXISTS (SELECT 1 FROM sys_user WHERE username = 'admin');
+
+INSERT INTO sys_user (username, email, password, nickname, status, role, create_time, update_time, deleted)
+SELECT 'demo', 'demo@knowflow.local', '$2a$10$bhW3J..X41KH56.YrkCMcu.TTaEdec3CPrnSPyf193dFoRFVKHPB2', 'demo', 'ENABLED', 'USER', NOW(), NOW(), 0
+WHERE NOT EXISTS (SELECT 1 FROM sys_user WHERE username = 'demo');
 
 INSERT INTO ai_model_config (name, provider, base_url, api_key, model_name, enabled, default_model, thinking_enabled, description, create_time, update_time, deleted)
 SELECT 'DeepSeek Reasoner', 'DEEPSEEK', 'https://api.deepseek.com', NULL, 'deepseek-reasoner', 1, 1, 1, 'Default DeepSeek model. Configure API key with DEEPSEEK_API_KEY or admin API.', NOW(), NOW(), 0
 WHERE NOT EXISTS (SELECT 1 FROM ai_model_config WHERE provider = 'DEEPSEEK' AND model_name = 'deepseek-reasoner');
 
 INSERT INTO prompt_template (code, name, content, scene, enabled, default_template, description, create_time, update_time, deleted)
-SELECT 'rag_default', '?????????', '?? KnowFlow AI ???????????????????????????????????????????????????', 'RAG', 1, 1, 'Default RAG prompt', NOW(), NOW(), 0
+SELECT 'rag_default', 'Default RAG Prompt', 'You are KnowFlow AI. Answer only from the provided document chunks. If evidence is insufficient, say that the current knowledge base has no sufficient evidence.', 'RAG', 1, 1, 'Default RAG prompt', NOW(), NOW(), 0
 WHERE NOT EXISTS (SELECT 1 FROM prompt_template WHERE code = 'rag_default');
+
+INSERT INTO system_config (config_key, config_value, description, create_time, update_time, deleted)
+SELECT 'upload.maxFileSizeMb', '20', 'Maximum upload file size for MVP', NOW(), NOW(), 0
+WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE config_key = 'upload.maxFileSizeMb');
+
+INSERT INTO system_config (config_key, config_value, description, create_time, update_time, deleted)
+SELECT 'rag.topK', '5', 'Default retrieval topK', NOW(), NOW(), 0
+WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE config_key = 'rag.topK');
+
+INSERT INTO knowledge_base (user_id, name, description, icon, category, status, document_count, create_time, update_time, deleted)
+SELECT u.id, 'KnowFlow Demo KB', 'Demo knowledge base for backend smoke tests', 'book', 'demo', 'NORMAL', 1, NOW(), NOW(), 0
+FROM sys_user u
+WHERE u.username = 'demo'
+  AND NOT EXISTS (SELECT 1 FROM knowledge_base kb WHERE kb.user_id = u.id AND kb.name = 'KnowFlow Demo KB');
+
+INSERT INTO document (user_id, knowledge_base_id, name, original_name, file_type, file_size, file_path, parse_status, embedding_status, error_message, create_time, update_time, deleted)
+SELECT u.id, kb.id, 'knowflow-demo.md', 'knowflow-demo.md', 'md', 256, './data/uploads/knowflow-demo.md', 'SUCCESS', 'SUCCESS', NULL, NOW(), NOW(), 0
+FROM sys_user u
+JOIN knowledge_base kb ON kb.user_id = u.id AND kb.name = 'KnowFlow Demo KB'
+WHERE u.username = 'demo'
+  AND NOT EXISTS (SELECT 1 FROM document d WHERE d.user_id = u.id AND d.knowledge_base_id = kb.id AND d.name = 'knowflow-demo.md');
+
+INSERT INTO document_chunk (user_id, knowledge_base_id, document_id, chunk_index, content, token_count, embedding, create_time, update_time, deleted)
+SELECT u.id, kb.id, d.id, 0,
+       'KnowFlow AI is a personal knowledge base and intelligent document question-answering platform. It supports document upload, parsing, chunking, retrieval, RAG answers, citations, summaries, admin management, and audit logs.',
+       42,
+       '0.37828585,0.52600720,0.54054841,0.63165977,0.30420113,0.66078814,0.49101945,0.21338082,0.39665671,0.61594286,0.64134881,0.68248698,0.47470512,0.65106847,0.46459099,0.52428385,0.34326363,0.40138634,0.47084482,0.27733226,0.12792969,0.14062500,0.12109375,0.18066406,0.14843750,0.24218750,0.07519531,0.08984375,0.10937500,0.10546875,0.12011719,0.14062500,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000,0.00000000',
+       NOW(), NOW(), 0
+FROM sys_user u
+JOIN knowledge_base kb ON kb.user_id = u.id AND kb.name = 'KnowFlow Demo KB'
+JOIN document d ON d.user_id = u.id AND d.knowledge_base_id = kb.id AND d.name = 'knowflow-demo.md'
+WHERE u.username = 'demo'
+  AND NOT EXISTS (SELECT 1 FROM document_chunk c WHERE c.document_id = d.id AND c.chunk_index = 0);
+
+INSERT INTO notification (user_id, title, content, read_flag, create_time, update_time, deleted)
+SELECT u.id, 'Demo document parsed', 'Your demo document is ready for question answering.', 0, NOW(), NOW(), 0
+FROM sys_user u
+WHERE u.username = 'demo'
+  AND NOT EXISTS (SELECT 1 FROM notification n WHERE n.user_id = u.id AND n.title = 'Demo document parsed');
+
+INSERT INTO announcement (title, content, enabled, create_time, update_time, deleted)
+SELECT 'Welcome to KnowFlow AI', 'This is the default announcement for backend testing.', 1, NOW(), NOW(), 0
+WHERE NOT EXISTS (SELECT 1 FROM announcement WHERE title = 'Welcome to KnowFlow AI');
+
+INSERT INTO login_log (user_id, account, success, message, create_time, update_time, deleted)
+SELECT u.id, 'demo', 1, 'seed login log', NOW(), NOW(), 0
+FROM sys_user u
+WHERE u.username = 'demo'
+  AND NOT EXISTS (SELECT 1 FROM login_log WHERE account = 'demo' AND message = 'seed login log');
+
+INSERT INTO ai_call_log (user_id, model_name, call_type, elapsed_ms, success, fail_reason, create_time, update_time, deleted)
+SELECT u.id, 'deepseek', 'CHAT', 1200, 1, NULL, NOW(), NOW(), 0
+FROM sys_user u
+WHERE u.username = 'demo'
+  AND NOT EXISTS (SELECT 1 FROM ai_call_log WHERE user_id = u.id AND model_name = 'deepseek' AND call_type = 'CHAT');
