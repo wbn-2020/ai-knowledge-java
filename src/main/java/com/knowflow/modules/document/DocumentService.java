@@ -6,6 +6,7 @@ import com.knowflow.common.PageResponse;
 import com.knowflow.common.enums.DocumentParseStatus;
 import com.knowflow.common.enums.EmbeddingStatus;
 import com.knowflow.common.enums.TaskStatus;
+import com.knowflow.modules.config.RuntimeConfigService;
 import com.knowflow.modules.knowledge.KnowledgeBase;
 import com.knowflow.modules.knowledge.KnowledgeBaseRepository;
 import com.knowflow.modules.knowledge.KnowledgeBaseService;
@@ -33,6 +34,7 @@ public class DocumentService {
     private final KnowledgeBaseRepository knowledgeBaseRepository;
     private final KnowledgeBaseService knowledgeBaseService;
     private final DocumentProcessService processService;
+    private final RuntimeConfigService runtimeConfigService;
     private final Path uploadRoot;
 
     public DocumentService(DocumentRepository documentRepository,
@@ -41,6 +43,7 @@ public class DocumentService {
                            KnowledgeBaseRepository knowledgeBaseRepository,
                            KnowledgeBaseService knowledgeBaseService,
                            DocumentProcessService processService,
+                           RuntimeConfigService runtimeConfigService,
                            @Value("${knowflow.upload.root}") String uploadRoot) {
         this.documentRepository = documentRepository;
         this.taskRepository = taskRepository;
@@ -48,6 +51,7 @@ public class DocumentService {
         this.knowledgeBaseRepository = knowledgeBaseRepository;
         this.knowledgeBaseService = knowledgeBaseService;
         this.processService = processService;
+        this.runtimeConfigService = runtimeConfigService;
         this.uploadRoot = Path.of(uploadRoot);
     }
 
@@ -56,8 +60,12 @@ public class DocumentService {
         KnowledgeBase kb = knowledgeBaseService.requireOwned(knowledgeBaseId);
         String originalName = file.getOriginalFilename() == null ? "document" : file.getOriginalFilename();
         String fileType = extension(originalName);
-        if (!ALLOWED_TYPES.contains(fileType)) {
+        if (!allowedTypes().contains(fileType)) {
             throw BusinessException.badRequest("仅支持 PDF、DOCX、TXT、MD 文件");
+        }
+        long maxBytes = runtimeConfigService.intValue("upload.maxFileSizeMb", 20) * 1024L * 1024L;
+        if (file.getSize() > maxBytes) {
+            throw BusinessException.badRequest("file size exceeds configured limit");
         }
 
         Files.createDirectories(uploadRoot);
@@ -214,5 +222,17 @@ public class DocumentService {
             throw BusinessException.badRequest("文件缺少扩展名");
         }
         return filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
+    }
+
+    private Set<String> allowedTypes() {
+        String configured = runtimeConfigService.value("upload.allowedTypes");
+        if (!StringUtils.hasText(configured)) {
+            return ALLOWED_TYPES;
+        }
+        return java.util.Arrays.stream(configured.split(","))
+                .map(String::trim)
+                .map(String::toLowerCase)
+                .filter(StringUtils::hasText)
+                .collect(java.util.stream.Collectors.toSet());
     }
 }

@@ -45,6 +45,12 @@ public class NoticeController {
         return ApiResponse.ok();
     }
 
+    @GetMapping("/announcements")
+    public ApiResponse<PageResponse<NoticeVO>> publicAnnouncements(@RequestParam(defaultValue = "1") int pageNo,
+                                                                   @RequestParam(defaultValue = "10") int pageSize) {
+        return ApiResponse.ok(service.publicAnnouncements(pageNo, pageSize));
+    }
+
     @GetMapping("/admin/announcements")
     public ApiResponse<PageResponse<NoticeVO>> announcements(@RequestParam(defaultValue = "1") int pageNo,
                                                              @RequestParam(defaultValue = "10") int pageSize) {

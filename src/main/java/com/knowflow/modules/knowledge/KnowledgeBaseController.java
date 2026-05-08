@@ -41,6 +41,11 @@ public class KnowledgeBaseController {
         return ApiResponse.ok(service.detail(id));
     }
 
+    @GetMapping("/{id}/detail")
+    public ApiResponse<KnowledgeBaseDetailVO> detailFull(@PathVariable Long id) {
+        return ApiResponse.ok(service.detailFull(id));
+    }
+
     @PutMapping("/{id}")
     public ApiResponse<KnowledgeBaseVO> update(@PathVariable Long id, @Valid @RequestBody KnowledgeBaseRequest request) {
         return ApiResponse.ok(service.update(id, request));

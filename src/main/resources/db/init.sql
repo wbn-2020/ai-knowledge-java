@@ -269,8 +269,16 @@ SELECT 'upload.maxFileSizeMb', '20', 'Maximum upload file size for MVP', NOW(), 
 WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE config_key = 'upload.maxFileSizeMb');
 
 INSERT INTO system_config (config_key, config_value, description, create_time, update_time, deleted)
+SELECT 'upload.allowedTypes', 'pdf,docx,txt,md', 'Allowed upload file extensions', NOW(), NOW(), 0
+WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE config_key = 'upload.allowedTypes');
+
+INSERT INTO system_config (config_key, config_value, description, create_time, update_time, deleted)
 SELECT 'rag.topK', '5', 'Default retrieval topK', NOW(), NOW(), 0
 WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE config_key = 'rag.topK');
+
+INSERT INTO system_config (config_key, config_value, description, create_time, update_time, deleted)
+SELECT 'rag.minScore', '0.05', 'Default retrieval minimum similarity score', NOW(), NOW(), 0
+WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE config_key = 'rag.minScore');
 
 INSERT INTO knowledge_base (user_id, name, description, icon, category, status, document_count, create_time, update_time, deleted)
 SELECT u.id, 'KnowFlow Demo KB', 'Demo knowledge base for backend smoke tests', 'book', 'demo', 'NORMAL', 1, NOW(), NOW(), 0

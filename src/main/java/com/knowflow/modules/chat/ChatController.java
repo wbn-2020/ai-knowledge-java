@@ -88,21 +88,27 @@ public class ChatController {
 
     @GetMapping("/sessions/{sessionId}/export/markdown")
     public ResponseEntity<String> exportMarkdown(@PathVariable Long sessionId) {
-        return export(sessionId, "markdown", "md");
+        return export(sessionId, "md");
     }
 
     @GetMapping("/sessions/{sessionId}/export/pdf")
-    public ResponseEntity<String> exportPdf(@PathVariable Long sessionId) {
-        return export(sessionId, "pdf", "txt");
+    public ResponseEntity<byte[]> exportPdf(@PathVariable Long sessionId) {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=chat-" + sessionId + ".pdf")
+                .contentType(MediaType.APPLICATION_PDF)
+                .body(chatService.exportPdf(sessionId));
     }
 
     @GetMapping("/sessions/{sessionId}/export/word")
-    public ResponseEntity<String> exportWord(@PathVariable Long sessionId) {
-        return export(sessionId, "word", "txt");
+    public ResponseEntity<byte[]> exportWord(@PathVariable Long sessionId) {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=chat-" + sessionId + ".docx")
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                .body(chatService.exportWord(sessionId));
     }
 
-    private ResponseEntity<String> export(Long sessionId, String format, String extension) {
-        String content = "markdown".equals(format) ? chatService.exportMarkdown(sessionId) : chatService.exportText(sessionId, format);
+    private ResponseEntity<String> export(Long sessionId, String extension) {
+        String content = chatService.exportMarkdown(sessionId);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=chat-" + sessionId + "." + extension)
                 .contentType(MediaType.TEXT_PLAIN)

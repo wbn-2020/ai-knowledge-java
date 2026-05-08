@@ -146,6 +146,14 @@ public class ConfigService {
         return template == null || !StringUtils.hasText(template.getContent()) ? FALLBACK_RAG_PROMPT : template.getContent();
     }
 
+    public AiModelConfig defaultModelConfig() {
+        return modelRepository.selectOne(new LambdaQueryWrapper<AiModelConfig>()
+                .eq(AiModelConfig::getEnabled, true)
+                .eq(AiModelConfig::getDefaultModel, true)
+                .orderByDesc(AiModelConfig::getUpdateTime)
+                .last("limit 1"));
+    }
+
     public List<ConfigVO> systemConfigs() {
         SecurityUtils.requireAdmin();
         return systemRepository.selectList(new LambdaQueryWrapper<SystemConfig>()

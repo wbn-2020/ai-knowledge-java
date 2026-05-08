@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.knowflow.common.enums.DocumentParseStatus;
 
 import java.util.Optional;
+import java.util.List;
 
 public interface DocumentRepository extends BaseMapper<Document> {
     default Optional<Document> findByIdAndUserIdAndDeletedFalse(Long id, Long userId) {
@@ -31,6 +32,25 @@ public interface DocumentRepository extends BaseMapper<Document> {
         return selectPage(page, new LambdaQueryWrapper<Document>()
                 .like(keyword != null && !keyword.isBlank(), Document::getName, keyword)
                 .orderByDesc(Document::getCreateTime));
+    }
+
+    default List<Document> findByUserIdAndKnowledgeBaseIdAndDeletedFalse(Long userId, Long knowledgeBaseId) {
+        return selectList(new LambdaQueryWrapper<Document>()
+                .eq(Document::getUserId, userId)
+                .eq(Document::getKnowledgeBaseId, knowledgeBaseId)
+                .orderByDesc(Document::getCreateTime));
+    }
+
+    default List<Document> findRecentByUserIdAndKnowledgeBaseId(Long userId, Long knowledgeBaseId, int limit) {
+        return selectList(new LambdaQueryWrapper<Document>()
+                .eq(Document::getUserId, userId)
+                .eq(Document::getKnowledgeBaseId, knowledgeBaseId)
+                .orderByDesc(Document::getCreateTime)
+                .last("limit " + limit));
+    }
+
+    default void deleteByKnowledgeBaseId(Long knowledgeBaseId) {
+        delete(new LambdaQueryWrapper<Document>().eq(Document::getKnowledgeBaseId, knowledgeBaseId));
     }
 
     default long countByUserIdAndDeletedFalse(Long userId) {

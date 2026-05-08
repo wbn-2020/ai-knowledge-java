@@ -8,4 +8,8 @@ public interface DocumentProcessTaskRepository extends BaseMapper<DocumentProces
     default Page<DocumentProcessTask> findByDeletedFalse(Page<DocumentProcessTask> page) {
         return selectPage(page, new LambdaQueryWrapper<DocumentProcessTask>().orderByDesc(DocumentProcessTask::getCreateTime));
     }
+
+    default void deleteByKnowledgeBaseId(Long knowledgeBaseId) {
+        delete(new LambdaQueryWrapper<DocumentProcessTask>().eq(DocumentProcessTask::getKnowledgeBaseId, knowledgeBaseId));
+    }
 }

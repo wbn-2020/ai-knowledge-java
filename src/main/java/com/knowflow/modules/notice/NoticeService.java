@@ -57,6 +57,13 @@ public class NoticeService {
                 new LambdaQueryWrapper<Announcement>().orderByDesc(Announcement::getCreateTime)).convert(NoticeVO::from));
     }
 
+    public PageResponse<NoticeVO> publicAnnouncements(int pageNo, int pageSize) {
+        return PageResponse.of(announcementRepository.selectPage(new Page<>(pageNo, pageSize),
+                new LambdaQueryWrapper<Announcement>()
+                        .eq(Announcement::getEnabled, true)
+                        .orderByDesc(Announcement::getCreateTime)).convert(NoticeVO::from));
+    }
+
     @Transactional
     public NoticeVO saveAnnouncement(AnnouncementRequest request) {
         SecurityUtils.requireAdmin();

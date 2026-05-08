@@ -5,6 +5,7 @@ import com.knowflow.modules.auth.dto.LoginRequest;
 import com.knowflow.modules.auth.dto.LoginVO;
 import com.knowflow.modules.auth.dto.RegisterRequest;
 import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -27,5 +28,10 @@ public class AuthController {
     @PostMapping("/login")
     public ApiResponse<LoginVO> login(@Valid @RequestBody LoginRequest request) {
         return ApiResponse.ok(authService.login(request));
+    }
+
+    @DeleteMapping("/logout")
+    public ApiResponse<Void> logout() {
+        return ApiResponse.ok();
     }
 }

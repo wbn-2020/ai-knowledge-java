@@ -2,7 +2,10 @@ package com.knowflow.infrastructure.ai;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.knowflow.common.BusinessException;
+import com.knowflow.modules.config.AiModelConfig;
+import com.knowflow.modules.config.AiModelConfigRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -20,21 +23,30 @@ public class DeepSeekLlmClient implements LlmClient {
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
-    private final String apiKey;
-    private final String model;
+    private final String configuredApiKey;
+    private final String configuredModel;
+    private final String configuredBaseUrl;
+    private final AiModelConfigRepository modelRepository;
 
     public DeepSeekLlmClient(@Value("${knowflow.deepseek.base-url}") String baseUrl,
                              @Value("${knowflow.deepseek.api-key}") String apiKey,
                              @Value("${knowflow.deepseek.model}") String model,
-                             ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper,
+                             AiModelConfigRepository modelRepository) {
         this.webClient = WebClient.builder().baseUrl(baseUrl).build();
         this.objectMapper = objectMapper;
-        this.apiKey = apiKey;
-        this.model = model;
+        this.configuredBaseUrl = baseUrl;
+        this.configuredApiKey = apiKey;
+        this.configuredModel = model;
+        this.modelRepository = modelRepository;
     }
 
     @Override
     public String complete(String prompt) {
+        AiModelConfig config = defaultModelConfig();
+        String apiKey = StringUtils.hasText(config == null ? null : config.getApiKey()) ? config.getApiKey() : configuredApiKey;
+        String model = StringUtils.hasText(config == null ? null : config.getModelName()) ? config.getModelName() : configuredModel;
+        String baseUrl = StringUtils.hasText(config == null ? null : config.getBaseUrl()) ? config.getBaseUrl() : configuredBaseUrl;
         if (!StringUtils.hasText(apiKey)) {
             throw BusinessException.badRequest("DeepSeek API key is not configured");
         }
@@ -43,7 +55,8 @@ public class DeepSeekLlmClient implements LlmClient {
         body.put("messages", List.of(Map.of("role", "user", "content", prompt)));
         body.put("stream", false);
 
-        String response = webClient.post()
+        WebClient client = baseUrl.equals(configuredBaseUrl) ? webClient : WebClient.builder().baseUrl(baseUrl).build();
+        String response = client.post()
                 .uri("/chat/completions")
                 .header("Authorization", "Bearer " + apiKey)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -63,5 +76,13 @@ public class DeepSeekLlmClient implements LlmClient {
         } catch (Exception ex) {
             throw BusinessException.badRequest("Failed to parse DeepSeek response");
         }
+    }
+
+    private AiModelConfig defaultModelConfig() {
+        return modelRepository.selectOne(new LambdaQueryWrapper<AiModelConfig>()
+                .eq(AiModelConfig::getEnabled, true)
+                .eq(AiModelConfig::getDefaultModel, true)
+                .orderByDesc(AiModelConfig::getUpdateTime)
+                .last("limit 1"));
     }
 }

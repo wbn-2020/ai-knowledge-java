@@ -12,6 +12,7 @@ import com.knowflow.modules.chat.dto.DocumentAskRequest;
 import com.knowflow.modules.chat.dto.FeedbackRequest;
 import com.knowflow.modules.chat.dto.MultiKnowledgeAskRequest;
 import com.knowflow.modules.config.ConfigService;
+import com.knowflow.modules.config.RuntimeConfigService;
 import com.knowflow.modules.document.Document;
 import com.knowflow.modules.document.DocumentChunk;
 import com.knowflow.modules.document.DocumentChunkRepository;
@@ -24,7 +25,17 @@ import com.knowflow.security.SecurityUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
+import org.apache.poi.xwpf.usermodel.XWPFRun;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -47,8 +58,9 @@ public class ChatService {
     private final LlmClient llmClient;
     private final LogService logService;
     private final ConfigService configService;
-    private final int topK;
-    private final double minScore;
+    private final RuntimeConfigService runtimeConfigService;
+    private final int defaultTopK;
+    private final double defaultMinScore;
 
     public ChatService(KnowledgeBaseService knowledgeBaseService,
                        DocumentService documentService,
@@ -62,6 +74,7 @@ public class ChatService {
                        LlmClient llmClient,
                        LogService logService,
                        ConfigService configService,
+                       RuntimeConfigService runtimeConfigService,
                        @Value("${knowflow.rag.top-k}") int topK,
                        @Value("${knowflow.rag.min-score}") double minScore) {
         this.knowledgeBaseService = knowledgeBaseService;
@@ -76,8 +89,9 @@ public class ChatService {
         this.llmClient = llmClient;
         this.logService = logService;
         this.configService = configService;
-        this.topK = topK;
-        this.minScore = minScore;
+        this.runtimeConfigService = runtimeConfigService;
+        this.defaultTopK = topK;
+        this.defaultMinScore = minScore;
     }
 
     @Transactional
@@ -199,9 +213,54 @@ public class ChatService {
         return markdown.toString();
     }
 
-    public String exportText(Long sessionId, String format) {
-        String title = "KnowFlow chat export (" + format.toUpperCase() + " placeholder)\n\n";
-        return title + exportMarkdown(sessionId);
+    public byte[] exportPdf(Long sessionId) {
+        String text = exportMarkdown(sessionId);
+        try (PDDocument document = new PDDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            PDPage page = new PDPage(PDRectangle.LETTER);
+            document.addPage(page);
+            PDPageContentStream stream = new PDPageContentStream(document, page);
+            stream.setFont(PDType1Font.HELVETICA, 10);
+            stream.beginText();
+            stream.newLineAtOffset(40, 740);
+            float y = 740;
+            for (String line : text.replace("\r", "").split("\n")) {
+                if (y < 50) {
+                    stream.endText();
+                    stream.close();
+                    page = new PDPage(PDRectangle.LETTER);
+                    document.addPage(page);
+                    stream = new PDPageContentStream(document, page);
+                    stream.setFont(PDType1Font.HELVETICA, 10);
+                    stream.beginText();
+                    stream.newLineAtOffset(40, 740);
+                    y = 740;
+                }
+                stream.showText(sanitizePdfLine(line));
+                stream.newLineAtOffset(0, -14);
+                y -= 14;
+            }
+            stream.endText();
+            stream.close();
+            document.save(out);
+            return out.toByteArray();
+        } catch (IOException ex) {
+            throw BusinessException.badRequest("failed to export PDF");
+        }
+    }
+
+    public byte[] exportWord(Long sessionId) {
+        String text = exportMarkdown(sessionId);
+        try (XWPFDocument document = new XWPFDocument(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            for (String line : text.replace("\r", "").split("\n")) {
+                XWPFParagraph paragraph = document.createParagraph();
+                XWPFRun run = paragraph.createRun();
+                run.setText(line);
+            }
+            document.write(out);
+            return out.toByteArray();
+        } catch (IOException ex) {
+            throw BusinessException.badRequest("failed to export Word document");
+        }
     }
 
     private AskVO answer(Long userId, ChatSession session, String question, List<ScoredChunk> scoredChunks) {
@@ -299,9 +358,9 @@ public class ChatService {
         ).stream().collect(Collectors.toMap(Document::getId, d -> d));
         return chunks.stream()
                 .map(chunk -> new ScoredChunk(chunk, documents.get(chunk.getDocumentId()), cosine(query, parseVector(chunk.getEmbedding()))))
-                .filter(scored -> scored.score() >= minScore)
+                .filter(scored -> scored.score() >= minScore())
                 .sorted(Comparator.comparing(ScoredChunk::score).reversed())
-                .limit(topK)
+                .limit(topK())
                 .toList();
     }
 
@@ -357,6 +416,19 @@ public class ChatService {
             nb += b[i] * b[i];
         }
         return na == 0 || nb == 0 ? 0 : dot / (Math.sqrt(na) * Math.sqrt(nb));
+    }
+
+    private int topK() {
+        return runtimeConfigService.intValue("rag.topK", defaultTopK);
+    }
+
+    private double minScore() {
+        return runtimeConfigService.doubleValue("rag.minScore", defaultMinScore);
+    }
+
+    private String sanitizePdfLine(String line) {
+        String ascii = line.replaceAll("[^\\x20-\\x7E]", "?");
+        return ascii.length() > 100 ? ascii.substring(0, 100) : ascii;
     }
 
     private record ScoredChunk(DocumentChunk chunk, Document document, double score) {

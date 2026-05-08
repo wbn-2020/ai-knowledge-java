@@ -1,19 +1,43 @@
 package com.knowflow.modules.knowledge;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.knowflow.common.BusinessException;
 import com.knowflow.common.PageResponse;
+import com.knowflow.common.enums.DocumentParseStatus;
+import com.knowflow.common.enums.KnowledgeBaseStatus;
+import com.knowflow.modules.chat.ChatSessionRepository;
+import com.knowflow.modules.chat.ChatSessionVO;
+import com.knowflow.modules.document.Document;
+import com.knowflow.modules.document.DocumentChunkRepository;
+import com.knowflow.modules.document.DocumentProcessTaskRepository;
+import com.knowflow.modules.document.DocumentRepository;
+import com.knowflow.modules.document.DocumentVO;
 import com.knowflow.modules.knowledge.dto.KnowledgeBaseRequest;
 import com.knowflow.security.SecurityUtils;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 public class KnowledgeBaseService {
     private final KnowledgeBaseRepository repository;
+    private final DocumentRepository documentRepository;
+    private final DocumentChunkRepository chunkRepository;
+    private final DocumentProcessTaskRepository taskRepository;
+    private final ChatSessionRepository chatSessionRepository;
 
-    public KnowledgeBaseService(KnowledgeBaseRepository repository) {
+    public KnowledgeBaseService(KnowledgeBaseRepository repository,
+                                DocumentRepository documentRepository,
+                                DocumentChunkRepository chunkRepository,
+                                DocumentProcessTaskRepository taskRepository,
+                                ChatSessionRepository chatSessionRepository) {
         this.repository = repository;
+        this.documentRepository = documentRepository;
+        this.chunkRepository = chunkRepository;
+        this.taskRepository = taskRepository;
+        this.chatSessionRepository = chatSessionRepository;
     }
 
     @Transactional
@@ -26,15 +50,30 @@ public class KnowledgeBaseService {
     }
 
     public PageResponse<KnowledgeBaseVO> page(String keyword, int pageNo, int pageSize, String sortBy) {
-        Page<KnowledgeBase> page = repository.findByUserIdAndDeletedFalseAndNameContaining(
-                keyword == null ? "" : keyword,
-                SecurityUtils.getCurrentUserId(),
-                new Page<>(pageNo, pageSize));
-        return PageResponse.of(convertPage(page, page.getRecords().stream().map(KnowledgeBaseVO::from).toList()));
+        Long userId = SecurityUtils.getCurrentUserId();
+        LambdaQueryWrapper<KnowledgeBase> query = new LambdaQueryWrapper<KnowledgeBase>()
+                .eq(KnowledgeBase::getUserId, userId)
+                .like(keyword != null && !keyword.isBlank(), KnowledgeBase::getName, keyword);
+        if ("createTime".equalsIgnoreCase(sortBy)) {
+            query.orderByDesc(KnowledgeBase::getCreateTime);
+        } else {
+            query.orderByDesc(KnowledgeBase::getUpdateTime);
+        }
+        return PageResponse.of(repository.selectPage(new Page<>(pageNo, pageSize), query).convert(KnowledgeBaseVO::from));
     }
 
     public KnowledgeBaseVO detail(Long id) {
         return KnowledgeBaseVO.from(requireOwned(id));
+    }
+
+    public KnowledgeBaseDetailVO detailFull(Long id) {
+        KnowledgeBase kb = requireOwned(id);
+        Long userId = SecurityUtils.getCurrentUserId();
+        List<DocumentVO> recentDocuments = documentRepository.findRecentByUserIdAndKnowledgeBaseId(userId, id, 10)
+                .stream().map(DocumentVO::from).toList();
+        List<ChatSessionVO> recentSessions = chatSessionRepository.findRecentByUserIdAndKnowledgeBaseId(userId, id, 10)
+                .stream().map(ChatSessionVO::from).toList();
+        return new KnowledgeBaseDetailVO(KnowledgeBaseVO.from(kb), recentDocuments, recentSessions, processingStatus(kb, userId));
     }
 
     @Transactional
@@ -48,13 +87,32 @@ public class KnowledgeBaseService {
     @Transactional
     public void delete(Long id) {
         KnowledgeBase kb = requireOwned(id);
+        chunkRepository.deleteByKnowledgeBaseId(id);
+        taskRepository.deleteByKnowledgeBaseId(id);
+        documentRepository.deleteByKnowledgeBaseId(id);
+        chatSessionRepository.deleteByKnowledgeBaseId(id);
         kb.setDeleted(true);
+        kb.setDocumentCount(0);
         repository.updateById(kb);
     }
 
     public KnowledgeBase requireOwned(Long id) {
         return repository.findByIdAndUserIdAndDeletedFalse(id, SecurityUtils.getCurrentUserId())
-                .orElseThrow(() -> BusinessException.notFound("知识库不存在"));
+                .orElseThrow(() -> BusinessException.notFound("knowledge base not found"));
+    }
+
+    private String processingStatus(KnowledgeBase kb, Long userId) {
+        if (kb.getStatus() == KnowledgeBaseStatus.DISABLED) {
+            return "DISABLED";
+        }
+        List<Document> documents = documentRepository.findByUserIdAndKnowledgeBaseIdAndDeletedFalse(userId, kb.getId());
+        if (documents.stream().anyMatch(doc -> doc.getParseStatus() == DocumentParseStatus.FAILED)) {
+            return "FAILED";
+        }
+        if (documents.stream().anyMatch(doc -> doc.getParseStatus() == DocumentParseStatus.PENDING || doc.getParseStatus() == DocumentParseStatus.PARSING)) {
+            return "PROCESSING";
+        }
+        return "NORMAL";
     }
 
     private void fill(KnowledgeBase kb, KnowledgeBaseRequest request) {
@@ -62,11 +120,5 @@ public class KnowledgeBaseService {
         kb.setDescription(request.description());
         kb.setIcon(request.icon());
         kb.setCategory(request.category());
-    }
-
-    private Page<KnowledgeBaseVO> convertPage(Page<KnowledgeBase> source, java.util.List<KnowledgeBaseVO> records) {
-        Page<KnowledgeBaseVO> target = new Page<>(source.getCurrent(), source.getSize(), source.getTotal());
-        target.setRecords(records);
-        return target;
     }
 }

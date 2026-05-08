@@ -30,7 +30,7 @@ public class SummaryService {
                 .limit(8)
                 .map(chunk -> chunk.getContent())
                 .collect(Collectors.joining("\n\n"));
-        return new SummaryVO(documentId, "DOCUMENT", llmClient.complete("请总结以下文档内容，保持简洁准确：\n" + content));
+        return new SummaryVO(documentId, "DOCUMENT", llmClient.complete("Summarize the following document content clearly and accurately:\n" + content));
     }
 
     public SummaryVO knowledgeBaseSummary(Long knowledgeBaseId) {
@@ -40,6 +40,6 @@ public class SummaryService {
                 .limit(12)
                 .map(chunk -> chunk.getContent())
                 .collect(Collectors.joining("\n\n"));
-        return new SummaryVO(knowledgeBaseId, "KNOWLEDGE_BASE", llmClient.complete("请总结以下知识库内容，输出核心主题和重要内容概览：\n" + content));
+        return new SummaryVO(knowledgeBaseId, "KNOWLEDGE_BASE", llmClient.complete("Summarize this knowledge base and list the core topics and important points:\n" + content));
     }
 }

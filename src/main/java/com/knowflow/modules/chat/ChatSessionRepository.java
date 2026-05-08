@@ -23,4 +23,16 @@ public interface ChatSessionRepository extends BaseMapper<ChatSession> {
     default long countByUserIdAndDeletedFalse(Long userId) {
         return selectCount(new LambdaQueryWrapper<ChatSession>().eq(ChatSession::getUserId, userId));
     }
+
+    default java.util.List<ChatSession> findRecentByUserIdAndKnowledgeBaseId(Long userId, Long knowledgeBaseId, int limit) {
+        return selectList(new LambdaQueryWrapper<ChatSession>()
+                .eq(ChatSession::getUserId, userId)
+                .eq(ChatSession::getKnowledgeBaseId, knowledgeBaseId)
+                .orderByDesc(ChatSession::getUpdateTime)
+                .last("limit " + limit));
+    }
+
+    default void deleteByKnowledgeBaseId(Long knowledgeBaseId) {
+        delete(new LambdaQueryWrapper<ChatSession>().eq(ChatSession::getKnowledgeBaseId, knowledgeBaseId));
+    }
 }

@@ -21,4 +21,8 @@ public interface DocumentChunkRepository extends BaseMapper<DocumentChunk> {
     default void deleteByDocumentId(Long documentId) {
         delete(new LambdaQueryWrapper<DocumentChunk>().eq(DocumentChunk::getDocumentId, documentId));
     }
+
+    default void deleteByKnowledgeBaseId(Long knowledgeBaseId) {
+        delete(new LambdaQueryWrapper<DocumentChunk>().eq(DocumentChunk::getKnowledgeBaseId, knowledgeBaseId));
+    }
 }
