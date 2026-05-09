@@ -5,6 +5,8 @@ import com.knowflow.common.BusinessException;
 import com.knowflow.common.PageResponse;
 import com.knowflow.entity.Document;
 import com.knowflow.entity.DocumentProcessTask;
+import com.knowflow.entity.LoginLog;
+import com.knowflow.entity.AiCallLog;
 import com.knowflow.entity.User;
 import com.knowflow.enums.DocumentParseStatus;
 import com.knowflow.enums.KnowledgeBaseStatus;
@@ -13,6 +15,8 @@ import com.knowflow.enums.UserStatus;
 import com.knowflow.mapper.DocumentProcessTaskRepository;
 import com.knowflow.mapper.DocumentRepository;
 import com.knowflow.mapper.KnowledgeBaseRepository;
+import com.knowflow.mapper.LoginLogRepository;
+import com.knowflow.mapper.AiCallLogRepository;
 import com.knowflow.mapper.UserRepository;
 import com.knowflow.security.SecurityUtils;
 import com.knowflow.service.DocumentService;
@@ -22,12 +26,14 @@ import com.knowflow.vo.AdminOverviewVO;
 import com.knowflow.vo.DocumentTaskVO;
 import com.knowflow.vo.DocumentVO;
 import com.knowflow.vo.KnowledgeBaseVO;
+import com.knowflow.vo.LogVO;
 import com.knowflow.vo.UserVO;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.List;
 
 
 @Service
@@ -35,6 +41,8 @@ public class AdminService {
     private final UserRepository userRepository;
     private final KnowledgeBaseRepository knowledgeBaseRepository;
     private final DocumentRepository documentRepository;
+    private final LoginLogRepository loginLogRepository;
+    private final AiCallLogRepository aiCallLogRepository;
     private final DocumentProcessTaskRepository taskRepository;
     private final KnowledgeBaseService knowledgeBaseService;
     private final DocumentService documentService;
@@ -44,6 +52,8 @@ public class AdminService {
     public AdminService(UserRepository userRepository,
                         KnowledgeBaseRepository knowledgeBaseRepository,
                         DocumentRepository documentRepository,
+                        LoginLogRepository loginLogRepository,
+                        AiCallLogRepository aiCallLogRepository,
                         DocumentProcessTaskRepository taskRepository,
                         KnowledgeBaseService knowledgeBaseService,
                         DocumentService documentService,
@@ -52,6 +62,8 @@ public class AdminService {
         this.userRepository = userRepository;
         this.knowledgeBaseRepository = knowledgeBaseRepository;
         this.documentRepository = documentRepository;
+        this.loginLogRepository = loginLogRepository;
+        this.aiCallLogRepository = aiCallLogRepository;
         this.taskRepository = taskRepository;
         this.knowledgeBaseService = knowledgeBaseService;
         this.documentService = documentService;
@@ -61,12 +73,44 @@ public class AdminService {
 
     public AdminOverviewVO overview() {
         SecurityUtils.requireAdmin();
+        java.time.LocalDateTime today = java.time.LocalDate.now().atStartOfDay();
+        long qaCount = aiCallLogRepository.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AiCallLog>()
+                .eq(AiCallLog::getCallType, "CHAT"));
+        long todayUserCount = userRepository.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
+                .ge(User::getCreateTime, today));
+        long todayDocumentCount = documentRepository.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Document>()
+                .ge(Document::getCreateTime, today));
+        long todayQaCount = aiCallLogRepository.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AiCallLog>()
+                .eq(AiCallLog::getCallType, "CHAT")
+                .ge(AiCallLog::getCreateTime, today));
+        List<UserVO> recentUsers = userRepository.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<User>()
+                        .orderByDesc(User::getCreateTime).last("limit 5"))
+                .stream().map(this::enrichUser).toList();
+        List<DocumentVO> recentDocuments = documentRepository.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Document>()
+                        .orderByDesc(Document::getCreateTime).last("limit 5"))
+                .stream().map(DocumentVO::from).toList();
+        List<DocumentTaskVO> recentFailedTasks = taskRepository.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<DocumentProcessTask>()
+                        .eq(DocumentProcessTask::getStatus, TaskStatus.FAILED)
+                        .orderByDesc(DocumentProcessTask::getCreateTime).last("limit 5"))
+                .stream().map(task -> toTaskVO(task, documentRepository.findByIdAndDeletedFalse(task.getDocumentId()).map(Document::getName).orElse(""))).toList();
+        List<LogVO> recentAiErrors = aiCallLogRepository.selectList(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<AiCallLog>()
+                        .eq(AiCallLog::getSuccess, false)
+                        .orderByDesc(AiCallLog::getCreateTime).last("limit 5"))
+                .stream().map(LogVO::from).toList();
         return new AdminOverviewVO(
                 userRepository.count(),
                 knowledgeBaseRepository.countByDeletedFalse(),
                 documentRepository.countByDeletedFalse(),
+                qaCount,
+                todayUserCount,
+                todayDocumentCount,
+                todayQaCount,
                 documentRepository.countByParseStatusAndDeletedFalse(DocumentParseStatus.FAILED),
-                knowledgeBaseRepository.countByStatusAndDeletedFalse(KnowledgeBaseStatus.DISABLED)
+                knowledgeBaseRepository.countByStatusAndDeletedFalse(KnowledgeBaseStatus.DISABLED),
+                recentUsers,
+                recentDocuments,
+                recentFailedTasks,
+                recentAiErrors
         );
     }
 
@@ -75,12 +119,12 @@ public class AdminService {
         Page<User> page = status == null
                 ? userRepository.findByDeletedFalseAndUsernameContaining(keyword == null ? "" : keyword, new Page<>(pageNo, pageSize))
                 : userRepository.findByDeletedFalseAndUsernameContainingAndStatus(keyword == null ? "" : keyword, status, new Page<>(pageNo, pageSize));
-        return PageResponse.of(page.convert(UserVO::from));
+        return PageResponse.of(page.convert(this::enrichUser));
     }
 
     public UserVO userDetail(Long userId) {
         SecurityUtils.requireAdmin();
-        return userRepository.findByIdAndDeletedFalse(userId).map(UserVO::from)
+        return userRepository.findByIdAndDeletedFalse(userId).map(this::enrichUser)
                 .orElseThrow(() -> BusinessException.notFound("user not found"));
     }
 
@@ -91,7 +135,7 @@ public class AdminService {
         user.setStatus(status);
         userRepository.updateById(user);
         operationLogService.record("SET_USER_STATUS", "USER", userId, status.name());
-        return UserVO.from(user);
+        return enrichUser(user);
     }
 
     @Transactional
@@ -185,25 +229,16 @@ public class AdminService {
 
     public PageResponse<DocumentTaskVO> tasks(int pageNo, int pageSize) {
         SecurityUtils.requireAdmin();
-        return tasks(null, "", pageNo, pageSize);
+        return tasks(null, null, "", pageNo, pageSize);
     }
 
-    public PageResponse<DocumentTaskVO> tasks(TaskStatus status, String keyword, int pageNo, int pageSize) {
+    public PageResponse<DocumentTaskVO> tasks(TaskStatus status, String taskType, String keyword, int pageNo, int pageSize) {
         SecurityUtils.requireAdmin();
-        Page<DocumentProcessTask> page = taskRepository.findByFilters(status, keyword == null ? "" : keyword, new Page<>(pageNo, pageSize));
+        Page<DocumentProcessTask> page = taskRepository.findByFilters(status, taskType, keyword == null ? "" : keyword, new Page<>(pageNo, pageSize));
         Map<Long, String> documentNameMap = documentRepository.selectBatchIds(
-                        page.getRecords().stream().map(DocumentProcessTask::getDocumentId).collect(Collectors.toSet()))
-                .stream().collect(Collectors.toMap(Document::getId, Document::getName));
-        return PageResponse.of(page.convert(task -> new DocumentTaskVO(
-                task.getId(),
-                task.getTaskType(),
-                task.getStatus(),
-                task.getDocumentId(),
-                documentNameMap.getOrDefault(task.getDocumentId(), ""),
-                task.getFailReason(),
-                task.getCreateTime(),
-                task.getUpdateTime()
-        )));
+                page.getRecords().stream().map(DocumentProcessTask::getDocumentId).collect(Collectors.toSet())
+        ).stream().collect(Collectors.toMap(Document::getId, Document::getName));
+        return PageResponse.of(page.convert(task -> toTaskVO(task, documentNameMap.getOrDefault(task.getDocumentId(), ""))));
     }
 
     public DocumentTaskVO taskDetail(Long id) {
@@ -213,8 +248,7 @@ public class AdminService {
             throw BusinessException.notFound("任务不存在");
         }
         String documentName = documentRepository.findByIdAndDeletedFalse(task.getDocumentId()).map(Document::getName).orElse("");
-        return new DocumentTaskVO(task.getId(), task.getTaskType(), task.getStatus(), task.getDocumentId(),
-                documentName, task.getFailReason(), task.getCreateTime(), task.getUpdateTime());
+        return toTaskVO(task, documentName);
     }
 
     @Transactional
@@ -237,7 +271,24 @@ public class AdminService {
                 .orElseThrow(() -> BusinessException.badRequest("重试任务创建失败"));
         operationLogService.record("RETRY_DOCUMENT_TASK", "DOCUMENT_TASK", id, "retry by admin, new taskId=" + created.getId());
         String documentName = documentRepository.findByIdAndDeletedFalse(created.getDocumentId()).map(Document::getName).orElse("");
-        return new DocumentTaskVO(created.getId(), created.getTaskType(), created.getStatus(), created.getDocumentId(),
-                documentName, created.getFailReason(), created.getCreateTime(), created.getUpdateTime());
+        return toTaskVO(created, documentName);
+    }
+
+    private DocumentTaskVO toTaskVO(DocumentProcessTask task, String documentName) {
+        return new DocumentTaskVO(task.getId(), task.getTaskType(), task.getStatus(), task.getDocumentId(),
+                documentName, task.getFailReason(), task.getCreateTime(), task.getUpdateTime());
+    }
+
+    private UserVO enrichUser(User user) {
+        long kbCount = knowledgeBaseRepository.selectCount(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.knowflow.entity.KnowledgeBase>()
+                .eq(com.knowflow.entity.KnowledgeBase::getUserId, user.getId()));
+        long docCount = documentRepository.countByUserIdAndDeletedFalse(user.getId());
+        long qaCount = 0L;
+        LoginLog lastLogin = loginLogRepository.selectOne(new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<LoginLog>()
+                .eq(LoginLog::getUserId, user.getId())
+                .eq(LoginLog::getSuccess, true)
+                .orderByDesc(LoginLog::getCreateTime)
+                .last("limit 1"));
+        return UserVO.enrich(UserVO.from(user), kbCount, docCount, qaCount, lastLogin == null ? null : lastLogin.getCreateTime());
     }
 }
