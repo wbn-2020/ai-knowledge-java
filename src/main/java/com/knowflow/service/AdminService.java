@@ -3,6 +3,7 @@ package com.knowflow.service;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.knowflow.common.BusinessException;
 import com.knowflow.common.PageResponse;
+import com.knowflow.entity.Document;
 import com.knowflow.entity.DocumentProcessTask;
 import com.knowflow.entity.User;
 import com.knowflow.enums.DocumentParseStatus;
@@ -25,6 +26,8 @@ import com.knowflow.vo.UserVO;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 
 @Service
@@ -187,9 +190,20 @@ public class AdminService {
 
     public PageResponse<DocumentTaskVO> tasks(TaskStatus status, String keyword, int pageNo, int pageSize) {
         SecurityUtils.requireAdmin();
-        return PageResponse.of(taskRepository
-                .findByFilters(status, keyword == null ? "" : keyword, new Page<>(pageNo, pageSize))
-                .convert(DocumentTaskVO::from));
+        Page<DocumentProcessTask> page = taskRepository.findByFilters(status, keyword == null ? "" : keyword, new Page<>(pageNo, pageSize));
+        Map<Long, String> documentNameMap = documentRepository.selectBatchIds(
+                        page.getRecords().stream().map(DocumentProcessTask::getDocumentId).collect(Collectors.toSet()))
+                .stream().collect(Collectors.toMap(Document::getId, Document::getName));
+        return PageResponse.of(page.convert(task -> new DocumentTaskVO(
+                task.getId(),
+                task.getTaskType(),
+                task.getStatus(),
+                task.getDocumentId(),
+                documentNameMap.getOrDefault(task.getDocumentId(), ""),
+                task.getFailReason(),
+                task.getCreateTime(),
+                task.getUpdateTime()
+        )));
     }
 
     public DocumentTaskVO taskDetail(Long id) {
@@ -198,7 +212,9 @@ public class AdminService {
         if (task == null) {
             throw BusinessException.notFound("任务不存在");
         }
-        return DocumentTaskVO.from(task);
+        String documentName = documentRepository.findByIdAndDeletedFalse(task.getDocumentId()).map(Document::getName).orElse("");
+        return new DocumentTaskVO(task.getId(), task.getTaskType(), task.getStatus(), task.getDocumentId(),
+                documentName, task.getFailReason(), task.getCreateTime(), task.getUpdateTime());
     }
 
     @Transactional
@@ -220,6 +236,8 @@ public class AdminService {
         DocumentProcessTask created = taskRepository.findLatestByDocumentId(documentId)
                 .orElseThrow(() -> BusinessException.badRequest("重试任务创建失败"));
         operationLogService.record("RETRY_DOCUMENT_TASK", "DOCUMENT_TASK", id, "retry by admin, new taskId=" + created.getId());
-        return DocumentTaskVO.from(created);
+        String documentName = documentRepository.findByIdAndDeletedFalse(created.getDocumentId()).map(Document::getName).orElse("");
+        return new DocumentTaskVO(created.getId(), created.getTaskType(), created.getStatus(), created.getDocumentId(),
+                documentName, created.getFailReason(), created.getCreateTime(), created.getUpdateTime());
     }
 }

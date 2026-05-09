@@ -1,4 +1,6 @@
 package com.knowflow.vo;
 
-public record SummaryVO(Long targetId, String targetType, String summary) {
+import java.time.LocalDateTime;
+
+public record SummaryVO(Long documentId, Long knowledgeBaseId, String summary, LocalDateTime createdAt, LocalDateTime updatedAt) {
 }

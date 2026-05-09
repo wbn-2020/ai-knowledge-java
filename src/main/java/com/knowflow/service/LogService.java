@@ -18,8 +18,11 @@ import com.knowflow.vo.LogVO;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.StringJoiner;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 
 
@@ -100,7 +103,10 @@ public class LogService {
     public void recordAiCall(Long userId, String modelName, String callType, long elapsedMs, boolean success, String failReason) {
         AiCallLog log = new AiCallLog();
         log.setUserId(userId);
+        log.setModel(modelName);
         log.setModelName(modelName);
+        log.setModelType("CHAT".equalsIgnoreCase(callType) ? "LLM" : "EMBEDDING");
+        log.setProvider("DEEPSEEK");
         log.setCallType(callType);
         log.setElapsedMs(elapsedMs);
         log.setSuccess(success);
@@ -112,9 +118,34 @@ public class LogService {
         LoginLog log = new LoginLog();
         log.setUserId(userId);
         log.setAccount(account);
+        log.setIp(clientIp());
+        log.setUserAgent(userAgent());
         log.setSuccess(success);
         log.setMessage(message);
+        log.setFailureReason(success ? null : message);
         loginLogRepository.insert(log);
+    }
+
+    private String clientIp() {
+        HttpServletRequest request = currentRequest();
+        if (request == null) {
+            return "";
+        }
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (StringUtils.hasText(forwarded)) {
+            return forwarded.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
+    }
+
+    private String userAgent() {
+        HttpServletRequest request = currentRequest();
+        return request == null ? "" : StringUtils.trimWhitespace(request.getHeader("User-Agent"));
+    }
+
+    private HttpServletRequest currentRequest() {
+        ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        return attrs == null ? null : attrs.getRequest();
     }
 
     private AlertVO alert(String type, long total, long failed, double threshold) {

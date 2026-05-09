@@ -16,6 +16,7 @@ public record UserVO(
         String bio,
         UserStatus status,
         UserRole role,
+        Boolean isAdmin,
         LocalDateTime createTime
 ) {
     public static UserVO from(User user) {
@@ -28,6 +29,7 @@ public record UserVO(
                 user.getBio(),
                 user.getStatus(),
                 user.getRole(),
+                user.getRole() == UserRole.ADMIN,
                 user.getCreateTime()
         );
     }

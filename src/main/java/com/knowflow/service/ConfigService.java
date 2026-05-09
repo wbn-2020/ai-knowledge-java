@@ -15,6 +15,9 @@ import com.knowflow.mapper.SystemConfigRepository;
 import com.knowflow.security.SecurityUtils;
 import com.knowflow.vo.ConfigVO;
 import java.util.List;
+import java.util.Locale;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -32,6 +35,7 @@ public class ConfigService {
     private final PromptTemplateRepository promptRepository;
     private final SystemConfigRepository systemRepository;
     private final LlmClient llmClient;
+    private static final Logger log = LoggerFactory.getLogger(ConfigService.class);
 
     public ConfigService(AiModelConfigRepository modelRepository,
                          PromptTemplateRepository promptRepository,
@@ -61,6 +65,8 @@ public class ConfigService {
             clearDefaultModels(null);
         }
         modelRepository.insert(config);
+        log.debug("Saved model config: id={}, provider={}, modelName={}, hasApiKey={}",
+                config.getId(), config.getProvider(), config.getModelName(), StringUtils.hasText(config.getApiKey()));
         return ConfigVO.from(config);
     }
 
@@ -73,6 +79,8 @@ public class ConfigService {
             clearDefaultModels(id);
         }
         modelRepository.updateById(config);
+        log.debug("Updated model config: id={}, provider={}, modelName={}, hasApiKey={}",
+                config.getId(), config.getProvider(), config.getModelName(), StringUtils.hasText(config.getApiKey()));
         return ConfigVO.from(config);
     }
 
@@ -85,9 +93,14 @@ public class ConfigService {
 
     public String testModel(Long id, String prompt) {
         SecurityUtils.requireAdmin();
-        requireModel(id);
+        AiModelConfig config = requireModel(id);
+        log.debug("Testing model config: id={}, provider={}, modelName={}, baseUrl={}, hasApiKey={}",
+                config.getId(), config.getProvider(), config.getModelName(), config.getBaseUrl(), StringUtils.hasText(config.getApiKey()));
+        if (!StringUtils.hasText(config.getApiKey())) {
+            throw BusinessException.badRequest("当前模型配置未设置 API Key");
+        }
         String testPrompt = StringUtils.hasText(prompt) ? prompt : "Reply with: KnowFlow model test passed.";
-        return llmClient.complete(testPrompt);
+        return llmClient.complete(testPrompt, config);
     }
 
     public List<ConfigVO> prompts() {
@@ -160,6 +173,28 @@ public class ConfigService {
                 .eq(AiModelConfig::getDefaultModel, true)
                 .orderByDesc(AiModelConfig::getUpdateTime)
                 .last("limit 1"));
+    }
+
+    public AiModelConfig requireEnabledLlmConfig() {
+        List<AiModelConfig> configs = modelRepository.selectList(new LambdaQueryWrapper<AiModelConfig>()
+                .eq(AiModelConfig::getEnabled, true)
+                .orderByDesc(AiModelConfig::getDefaultModel)
+                .orderByDesc(AiModelConfig::getUpdateTime)
+                .last("limit 20"));
+        AiModelConfig selected = configs.stream().filter(this::isLlm).findFirst().orElse(null);
+        if (selected == null) {
+            throw BusinessException.badRequest("当前未启用大语言模型配置");
+        }
+        if (!StringUtils.hasText(selected.getApiKey())) {
+            throw BusinessException.badRequest("当前模型配置未设置 API Key");
+        }
+        if (!StringUtils.hasText(selected.getBaseUrl())) {
+            throw BusinessException.badRequest("当前模型配置未设置接口地址");
+        }
+        if (!StringUtils.hasText(selected.getModelName())) {
+            throw BusinessException.badRequest("当前模型配置未设置模型名称");
+        }
+        return selected;
     }
 
     public List<ConfigVO> systemConfigs() {
@@ -262,5 +297,14 @@ public class ConfigService {
                         promptRepository.updateById(item);
                     }
                 });
+    }
+
+    private boolean isLlm(AiModelConfig config) {
+        String explicitType = config.getModelType();
+        if (StringUtils.hasText(explicitType)) {
+            return "LLM".equalsIgnoreCase(explicitType);
+        }
+        String modelName = config.getModelName() == null ? "" : config.getModelName().toLowerCase(Locale.ROOT);
+        return !modelName.contains("embedding");
     }
 }

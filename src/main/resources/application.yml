@@ -6,6 +6,8 @@ server:
 spring:
   application:
     name: knowflow-ai
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/knowflow_ai?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false}
     username: root
@@ -36,7 +38,7 @@ knowflow:
     min-score: 0.05
   deepseek:
     base-url: https://api.deepseek.com
-    api-key: sk-b1e6fe0756a34fa6ba5e05cb5389822e
+    api-key: ${DEEPSEEK_API_KEY:}
     model: deepseek-reasoner
 
 logging:

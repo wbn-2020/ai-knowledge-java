@@ -1,0 +1,21 @@
+ALTER TABLE operation_log
+    ADD COLUMN IF NOT EXISTS module VARCHAR(128) NULL AFTER action,
+    ADD COLUMN IF NOT EXISTS path VARCHAR(512) NULL AFTER module,
+    ADD COLUMN IF NOT EXISTS result VARCHAR(32) NULL AFTER path,
+    ADD COLUMN IF NOT EXISTS failure_reason VARCHAR(1024) NULL AFTER result;
+
+ALTER TABLE login_log
+    ADD COLUMN IF NOT EXISTS ip VARCHAR(64) NULL AFTER account,
+    ADD COLUMN IF NOT EXISTS user_agent VARCHAR(512) NULL AFTER ip,
+    ADD COLUMN IF NOT EXISTS failure_reason VARCHAR(255) NULL AFTER message;
+
+ALTER TABLE ai_call_log
+    ADD COLUMN IF NOT EXISTS model VARCHAR(128) NULL AFTER user_id,
+    ADD COLUMN IF NOT EXISTS model_type VARCHAR(64) NULL AFTER model_name,
+    ADD COLUMN IF NOT EXISTS provider VARCHAR(64) NULL AFTER model_type,
+    ADD COLUMN IF NOT EXISTS prompt_tokens INT NULL AFTER call_type,
+    ADD COLUMN IF NOT EXISTS completion_tokens INT NULL AFTER prompt_tokens,
+    ADD COLUMN IF NOT EXISTS total_tokens INT NULL AFTER completion_tokens;
+
+ALTER TABLE document_process_task
+    ADD COLUMN IF NOT EXISTS task_type VARCHAR(64) NULL AFTER document_id;

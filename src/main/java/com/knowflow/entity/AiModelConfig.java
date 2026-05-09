@@ -1,18 +1,27 @@
 package com.knowflow.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.knowflow.common.BaseEntity;
 
 @TableName("ai_model_config")
 public class AiModelConfig extends BaseEntity {
     private String name;
     private String provider;
+    @TableField("base_url")
     private String baseUrl;
+    @TableField("api_key")
     private String apiKey;
+    @TableField("model_name")
     private String modelName;
+    @TableField(exist = false)
+    private String modelType;
     private Boolean enabled;
+    @TableField("default_model")
     private Boolean defaultModel;
+    @TableField("thinking_enabled")
     private Boolean thinkingEnabled;
+    @TableField("max_tokens")
     private Integer maxTokens;
     private Double temperature;
     private String description;
@@ -27,6 +36,8 @@ public class AiModelConfig extends BaseEntity {
     public void setApiKey(String apiKey) { this.apiKey = apiKey; }
     public String getModelName() { return modelName; }
     public void setModelName(String modelName) { this.modelName = modelName; }
+    public String getModelType() { return modelType; }
+    public void setModelType(String modelType) { this.modelType = modelType; }
     public Boolean getEnabled() { return enabled; }
     public void setEnabled(Boolean enabled) { this.enabled = enabled; }
     public Boolean getDefaultModel() { return defaultModel; }

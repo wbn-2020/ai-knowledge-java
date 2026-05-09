@@ -6,6 +6,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.knowflow.common.BusinessException;
 import com.knowflow.entity.AiModelConfig;
 import com.knowflow.mapper.AiModelConfigRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -20,6 +22,7 @@ import java.util.Map;
 @Component
 public class DeepSeekLlmClient implements LlmClient {
     private static final String NO_EVIDENCE = "The current knowledge base has no sufficient evidence.";
+    private static final Logger log = LoggerFactory.getLogger(DeepSeekLlmClient.class);
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
@@ -44,15 +47,36 @@ public class DeepSeekLlmClient implements LlmClient {
     @Override
     public String complete(String prompt) {
         AiModelConfig config = defaultModelConfig();
-        String apiKey = StringUtils.hasText(config == null ? null : config.getApiKey()) ? config.getApiKey() : configuredApiKey;
-        String model = StringUtils.hasText(config == null ? null : config.getModelName()) ? config.getModelName() : configuredModel;
-        String baseUrl = StringUtils.hasText(config == null ? null : config.getBaseUrl()) ? config.getBaseUrl() : configuredBaseUrl;
-        if (!StringUtils.hasText(apiKey)) {
-            throw BusinessException.badRequest("DeepSeek API key is not configured");
+        return completeInternal(prompt, config, true);
+    }
+
+    @Override
+    public String complete(String prompt, AiModelConfig modelConfig) {
+        return completeInternal(prompt, modelConfig, false);
+    }
+
+    private String completeInternal(String prompt, AiModelConfig config, boolean allowEnvFallback) {
+        String apiKey = StringUtils.hasText(config == null ? null : config.getApiKey())
+                ? config.getApiKey()
+                : (allowEnvFallback ? configuredApiKey : null);
+        String model = StringUtils.hasText(config == null ? null : config.getModelName())
+                ? config.getModelName()
+                : configuredModel;
+        String baseUrl = StringUtils.hasText(config == null ? null : config.getBaseUrl())
+                ? config.getBaseUrl()
+                : configuredBaseUrl;
+        boolean hasApiKey = StringUtils.hasText(apiKey);
+        if (!hasApiKey) {
+            throw BusinessException.badRequest("当前模型配置未设置 API Key");
         }
+        log.debug("Call model: provider={}, modelName={}, baseUrl={}, hasApiKey={}.",
+                config == null ? "ENV" : config.getProvider(), model, baseUrl, hasApiKey);
         Map<String, Object> body = new HashMap<>();
         body.put("model", model);
         body.put("messages", List.of(Map.of("role", "user", "content", prompt)));
+        if (config != null && config.getTemperature() != null) {
+            body.put("temperature", config.getTemperature());
+        }
         body.put("stream", false);
 
         WebClient client = baseUrl.equals(configuredBaseUrl) ? webClient : WebClient.builder().baseUrl(baseUrl).build();

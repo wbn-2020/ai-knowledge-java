@@ -11,6 +11,7 @@ import com.knowflow.entity.ChatFeedback;
 import com.knowflow.entity.ChatMessage;
 import com.knowflow.entity.ChatMessageReference;
 import com.knowflow.entity.ChatSession;
+import com.knowflow.entity.AiModelConfig;
 import com.knowflow.entity.Document;
 import com.knowflow.entity.DocumentChunk;
 import com.knowflow.entity.KnowledgeBase;
@@ -41,6 +42,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -52,12 +55,14 @@ import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 
 
 @Service
 public class ChatService {
     private static final String NO_EVIDENCE = "The current knowledge base has no sufficient evidence.";
+    private static final Logger log = LoggerFactory.getLogger(ChatService.class);
 
     private final KnowledgeBaseService knowledgeBaseService;
     private final DocumentService documentService;
@@ -279,24 +284,31 @@ public class ChatService {
     private AskVO answer(Long userId, ChatSession session, String question, List<ScoredChunk> scoredChunks) {
         saveMessage(userId, session.getId(), MessageRole.USER, question, null);
         String answer;
+        AiModelConfig modelConfig = configService.requireEnabledLlmConfig();
+        boolean hasApiKey = StringUtils.hasText(modelConfig.getApiKey());
+        String modelType = StringUtils.hasText(modelConfig.getModelType())
+                ? modelConfig.getModelType().toUpperCase()
+                : (modelConfig.getModelName() != null && modelConfig.getModelName().toLowerCase().contains("embedding") ? "EMBEDDING" : "LLM");
+        log.debug("Chat selectedModelId={}, provider={}, modelType={}, modelName={}, baseUrl={}, hasApiKey={}",
+                modelConfig.getId(), modelConfig.getProvider(), modelType, modelConfig.getModelName(), modelConfig.getBaseUrl(), hasApiKey);
         if (scoredChunks.isEmpty()) {
             answer = NO_EVIDENCE;
         } else {
             long start = System.currentTimeMillis();
             try {
-                answer = llmClient.complete(buildPrompt(question, scoredChunks, session.getId(), userId));
-                logService.recordAiCall(userId, "deepseek", "CHAT", System.currentTimeMillis() - start, true, null);
+                answer = llmClient.complete(buildPrompt(question, scoredChunks, session.getId(), userId), modelConfig);
+                logService.recordAiCall(userId, modelConfig.getModelName(), "CHAT", System.currentTimeMillis() - start, true, null);
             } catch (RuntimeException ex) {
-                logService.recordAiCall(userId, "deepseek", "CHAT", System.currentTimeMillis() - start, false, ex.getMessage());
+                logService.recordAiCall(userId, modelConfig.getModelName(), "CHAT", System.currentTimeMillis() - start, false, ex.getMessage());
                 throw ex;
             }
         }
-        ChatMessage assistantMessage = saveMessage(userId, session.getId(), MessageRole.ASSISTANT, answer, "deepseek");
+        ChatMessage assistantMessage = saveMessage(userId, session.getId(), MessageRole.ASSISTANT, answer, modelConfig.getModelName());
         List<ReferenceVO> references = scoredChunks.stream()
                 .map(scored -> saveReference(userId, assistantMessage.getId(), scored))
                 .map(ReferenceVO::from)
                 .toList();
-        return new AskVO(session.getId(), answer, references);
+        return new AskVO(session.getId(), question, answer, assistantMessage.getId(), references);
     }
 
     private KnowledgeBase requireUsableKnowledgeBase(Long id) {
@@ -318,7 +330,11 @@ public class ChatService {
         ChatSession session = new ChatSession();
         session.setUserId(userId);
         session.setKnowledgeBaseId(knowledgeBaseId);
-        session.setTitle(question.length() > 30 ? question.substring(0, 30) : question);
+        String normalizedTitle = StringUtils.hasText(question) ? question.trim() : "";
+        if (!StringUtils.hasText(normalizedTitle)) {
+            normalizedTitle = "新会话";
+        }
+        session.setTitle(normalizedTitle.length() > 20 ? normalizedTitle.substring(0, 20) : normalizedTitle);
         sessionRepository.insert(session);
         return session;
     }

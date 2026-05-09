@@ -1,0 +1,10 @@
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+logging:
+  level:
+    com.knowflow: debug
+    com.knowflow.mapper: debug
+    org.mybatis: debug
+    com.baomidou.mybatisplus: debug

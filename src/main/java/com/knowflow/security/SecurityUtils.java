@@ -16,14 +16,14 @@ public final class SecurityUtils {
     public static CurrentUser getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !(authentication.getPrincipal() instanceof CurrentUser currentUser)) {
-            throw BusinessException.unauthorized("未登录");
+            throw BusinessException.unauthorized("请先登录");
         }
         return currentUser;
     }
 
     public static void requireAdmin() {
         if (getCurrentUser().role() != UserRole.ADMIN) {
-            throw BusinessException.forbidden("需要管理员权限");
+            throw BusinessException.forbidden("无权限访问后台管理功能");
         }
     }
 }
