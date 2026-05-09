@@ -5,7 +5,6 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.knowflow.entity.User;
 import com.knowflow.enums.UserStatus;
-import java.util.List;
 import java.util.Optional;
 
 
@@ -44,13 +43,5 @@ public interface UserRepository extends BaseMapper<User> {
     default Page<User> findByDeletedFalseAndUsernameContaining(String username, Page<User> page) {
         return selectPage(page, new LambdaQueryWrapper<User>()
                 .like(username != null && !username.isBlank(), User::getUsername, username));
-    }
-
-    default List<Long> findIdsByUsernameContaining(String username) {
-        return selectList(new LambdaQueryWrapper<User>()
-                .like(username != null && !username.isBlank(), User::getUsername, username))
-                .stream()
-                .map(User::getId)
-                .toList();
     }
 }

@@ -5,7 +5,6 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.knowflow.entity.KnowledgeBase;
 import com.knowflow.enums.KnowledgeBaseStatus;
-import java.util.List;
 import java.util.Optional;
 
 
@@ -37,12 +36,10 @@ public interface KnowledgeBaseRepository extends BaseMapper<KnowledgeBase> {
 
     default Page<KnowledgeBase> findByAdminFilters(String keyword,
                                                    KnowledgeBaseStatus status,
-                                                   List<Long> userIds,
                                                    Page<KnowledgeBase> page) {
         return selectPage(page, new LambdaQueryWrapper<KnowledgeBase>()
                 .like(keyword != null && !keyword.isBlank(), KnowledgeBase::getName, keyword)
                 .eq(status != null, KnowledgeBase::getStatus, status)
-                .in(userIds != null && !userIds.isEmpty(), KnowledgeBase::getUserId, userIds)
                 .orderByDesc(KnowledgeBase::getCreateTime));
     }
 
