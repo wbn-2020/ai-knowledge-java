@@ -125,10 +125,11 @@ public class AdminController {
 
     @GetMapping("/document-tasks")
     public ApiResponse<PageResponse<DocumentTaskVO>> tasks(@RequestParam(required = false) TaskStatus status,
+                                                           @RequestParam(required = false) String taskType,
                                                            @RequestParam(defaultValue = "") String keyword,
                                                            @RequestParam(defaultValue = "1") int pageNo,
                                                            @RequestParam(defaultValue = "10") int pageSize) {
-        return ApiResponse.ok(adminService.tasks(status, keyword, pageNo, pageSize));
+        return ApiResponse.ok(adminService.tasks(status, taskType, keyword, pageNo, pageSize));
     }
 
     @PostMapping("/document-tasks/{id}/retry")

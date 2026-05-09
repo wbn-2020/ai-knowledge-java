@@ -2,10 +2,12 @@ package com.knowflow.controller;
 
 import com.knowflow.common.ApiResponse;
 import com.knowflow.dto.AiModelConfigRequest;
-import com.knowflow.dto.PromptTemplateRequest;
-import com.knowflow.dto.SystemConfigRequest;
+import com.knowflow.dto.PromptConfigRequest;
+import com.knowflow.dto.SystemSettingsSaveRequest;
 import com.knowflow.service.ConfigService;
 import com.knowflow.vo.ConfigVO;
+import com.knowflow.vo.PromptConfigVO;
+import com.knowflow.vo.SystemSettingsVO;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
@@ -56,22 +58,22 @@ public class ConfigController {
     }
 
     @GetMapping("/prompts")
-    public ApiResponse<List<ConfigVO>> prompts() {
+    public ApiResponse<List<PromptConfigVO>> prompts() {
         return ApiResponse.ok(service.prompts());
     }
 
     @GetMapping("/prompts/{id}")
-    public ApiResponse<ConfigVO> promptDetail(@PathVariable Long id) {
+    public ApiResponse<PromptConfigVO> promptDetail(@PathVariable Long id) {
         return ApiResponse.ok(service.promptDetail(id));
     }
 
     @PostMapping("/prompts")
-    public ApiResponse<ConfigVO> savePrompt(@Valid @RequestBody PromptTemplateRequest request) {
+    public ApiResponse<PromptConfigVO> savePrompt(@Valid @RequestBody PromptConfigRequest request) {
         return ApiResponse.ok(service.savePrompt(request));
     }
 
     @PutMapping("/prompts/{id}")
-    public ApiResponse<ConfigVO> updatePrompt(@PathVariable Long id, @Valid @RequestBody PromptTemplateRequest request) {
+    public ApiResponse<PromptConfigVO> updatePrompt(@PathVariable Long id, @Valid @RequestBody PromptConfigRequest request) {
         return ApiResponse.ok(service.updatePrompt(id, request));
     }
 
@@ -82,18 +84,18 @@ public class ConfigController {
     }
 
     @PutMapping("/prompts/{id}/enabled")
-    public ApiResponse<ConfigVO> setPromptEnabled(@PathVariable Long id, @RequestBody Map<String, Boolean> request) {
+    public ApiResponse<PromptConfigVO> setPromptEnabled(@PathVariable Long id, @RequestBody Map<String, Boolean> request) {
         return ApiResponse.ok(service.setPromptEnabled(id, Boolean.TRUE.equals(request.get("enabled"))));
     }
 
     @GetMapping("/system")
-    public ApiResponse<List<ConfigVO>> systemConfigs() {
-        return ApiResponse.ok(service.systemConfigs());
+    public ApiResponse<SystemSettingsVO> systemConfigs() {
+        return ApiResponse.ok(service.systemSettings());
     }
 
     @PostMapping("/system")
-    public ApiResponse<ConfigVO> saveSystemConfig(@Valid @RequestBody SystemConfigRequest request) {
-        return ApiResponse.ok(service.saveSystemConfig(request));
+    public ApiResponse<SystemSettingsVO> saveSystemConfig(@Valid @RequestBody SystemSettingsSaveRequest request) {
+        return ApiResponse.ok(service.saveSystemSettings(request));
     }
 
     @DeleteMapping("/system/{id}")

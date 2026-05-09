@@ -142,9 +142,22 @@ public class ChatService {
     }
 
     public PageResponse<ChatSessionVO> sessions(int pageNo, int pageSize) {
-        return PageResponse.of(sessionRepository
-                .findByUserIdAndDeletedFalse(SecurityUtils.getCurrentUserId(), new Page<>(pageNo, pageSize))
-                .convert(ChatSessionVO::from));
+        Long userId = SecurityUtils.getCurrentUserId();
+        Page<ChatSession> page = sessionRepository.findByUserIdAndDeletedFalse(userId, new Page<>(pageNo, pageSize));
+        Map<Long, String> kbNames = knowledgeBaseService.page("", 1, 1000, "updateTime").list().stream()
+                .collect(Collectors.toMap(com.knowflow.vo.KnowledgeBaseVO::id, com.knowflow.vo.KnowledgeBaseVO::name));
+        return PageResponse.of(page.convert(session -> {
+            List<ChatMessage> sessionMessages = messagesForSession(userId, session.getId());
+            String latestQuestion = sessionMessages.stream()
+                    .filter(m -> m.getRole() == MessageRole.USER)
+                    .reduce((a, b) -> b)
+                    .map(ChatMessage::getContent)
+                    .orElse("");
+            return new ChatSessionVO(session.getId(), session.getKnowledgeBaseId(),
+                    kbNames.getOrDefault(session.getKnowledgeBaseId(), ""),
+                    session.getTitle(), latestQuestion, (long) sessionMessages.size(),
+                    session.getCreateTime(), session.getUpdateTime(), session.getUpdateTime());
+        }));
     }
 
     public List<ChatMessageVO> messages(Long sessionId) {

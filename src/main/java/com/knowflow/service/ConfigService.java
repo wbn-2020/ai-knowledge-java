@@ -3,8 +3,8 @@ package com.knowflow.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.knowflow.common.BusinessException;
 import com.knowflow.dto.AiModelConfigRequest;
-import com.knowflow.dto.PromptTemplateRequest;
-import com.knowflow.dto.SystemConfigRequest;
+import com.knowflow.dto.PromptConfigRequest;
+import com.knowflow.dto.SystemSettingsSaveRequest;
 import com.knowflow.entity.AiModelConfig;
 import com.knowflow.entity.PromptTemplate;
 import com.knowflow.entity.SystemConfig;
@@ -14,15 +14,17 @@ import com.knowflow.mapper.PromptTemplateRepository;
 import com.knowflow.mapper.SystemConfigRepository;
 import com.knowflow.security.SecurityUtils;
 import com.knowflow.vo.ConfigVO;
+import com.knowflow.vo.PromptConfigVO;
+import com.knowflow.vo.SystemSettingsVO;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-
-
 
 @Service
 public class ConfigService {
@@ -31,29 +33,30 @@ public class ConfigService {
             If evidence is insufficient, say that the current knowledge base has no sufficient evidence.
             """;
 
+    private static final Logger log = LoggerFactory.getLogger(ConfigService.class);
     private final AiModelConfigRepository modelRepository;
     private final PromptTemplateRepository promptRepository;
     private final SystemConfigRepository systemRepository;
     private final LlmClient llmClient;
-    private static final Logger log = LoggerFactory.getLogger(ConfigService.class);
+    private final OperationLogService operationLogService;
 
     public ConfigService(AiModelConfigRepository modelRepository,
                          PromptTemplateRepository promptRepository,
                          SystemConfigRepository systemRepository,
-                         LlmClient llmClient) {
+                         LlmClient llmClient,
+                         OperationLogService operationLogService) {
         this.modelRepository = modelRepository;
         this.promptRepository = promptRepository;
         this.systemRepository = systemRepository;
         this.llmClient = llmClient;
+        this.operationLogService = operationLogService;
     }
 
     public List<ConfigVO> models() {
         SecurityUtils.requireAdmin();
         return modelRepository.selectList(new LambdaQueryWrapper<AiModelConfig>()
                         .orderByDesc(AiModelConfig::getCreateTime))
-                .stream()
-                .map(ConfigVO::from)
-                .toList();
+                .stream().map(ConfigVO::from).toList();
     }
 
     @Transactional
@@ -67,6 +70,7 @@ public class ConfigService {
         modelRepository.insert(config);
         log.debug("Saved model config: id={}, provider={}, modelName={}, hasApiKey={}",
                 config.getId(), config.getProvider(), config.getModelName(), StringUtils.hasText(config.getApiKey()));
+        operationLogService.record("SAVE_MODEL_CONFIG", "AI_MODEL_CONFIG", config.getId(), config.getName());
         return ConfigVO.from(config);
     }
 
@@ -81,14 +85,16 @@ public class ConfigService {
         modelRepository.updateById(config);
         log.debug("Updated model config: id={}, provider={}, modelName={}, hasApiKey={}",
                 config.getId(), config.getProvider(), config.getModelName(), StringUtils.hasText(config.getApiKey()));
+        operationLogService.record("UPDATE_MODEL_CONFIG", "AI_MODEL_CONFIG", config.getId(), config.getName());
         return ConfigVO.from(config);
     }
 
     @Transactional
     public void deleteModel(Long id) {
         SecurityUtils.requireAdmin();
-        requireModel(id);
+        AiModelConfig config = requireModel(id);
         modelRepository.deleteById(id);
+        operationLogService.record("DELETE_MODEL_CONFIG", "AI_MODEL_CONFIG", id, config.getName());
     }
 
     public String testModel(Long id, String prompt) {
@@ -103,76 +109,66 @@ public class ConfigService {
         return llmClient.complete(testPrompt, config);
     }
 
-    public List<ConfigVO> prompts() {
+    public List<PromptConfigVO> prompts() {
         SecurityUtils.requireAdmin();
         return promptRepository.selectList(new LambdaQueryWrapper<PromptTemplate>()
                         .orderByDesc(PromptTemplate::getCreateTime))
-                .stream()
-                .map(ConfigVO::from)
-                .toList();
+                .stream().map(PromptConfigVO::from).toList();
     }
 
-    public ConfigVO promptDetail(Long id) {
+    public PromptConfigVO promptDetail(Long id) {
         SecurityUtils.requireAdmin();
-        return ConfigVO.from(requirePrompt(id));
+        return PromptConfigVO.from(requirePrompt(id));
     }
 
     @Transactional
-    public ConfigVO savePrompt(PromptTemplateRequest request) {
+    public PromptConfigVO savePrompt(PromptConfigRequest request) {
         SecurityUtils.requireAdmin();
         PromptTemplate template = new PromptTemplate();
         fillPrompt(template, request);
-        if (Boolean.TRUE.equals(template.getDefaultTemplate())) {
-            clearDefaultPrompts(template.getScene(), null);
-        }
         promptRepository.insert(template);
-        return ConfigVO.from(template);
+        operationLogService.record("SAVE_PROMPT", "PROMPT_TEMPLATE", template.getId(), template.getName());
+        return PromptConfigVO.from(template);
     }
 
     @Transactional
-    public ConfigVO updatePrompt(Long id, PromptTemplateRequest request) {
+    public PromptConfigVO updatePrompt(Long id, PromptConfigRequest request) {
         SecurityUtils.requireAdmin();
         PromptTemplate template = requirePrompt(id);
         fillPrompt(template, request);
-        if (Boolean.TRUE.equals(template.getDefaultTemplate())) {
-            clearDefaultPrompts(template.getScene(), id);
-        }
         promptRepository.updateById(template);
-        return ConfigVO.from(template);
+        operationLogService.record("UPDATE_PROMPT", "PROMPT_TEMPLATE", id, template.getName());
+        return PromptConfigVO.from(template);
     }
 
     @Transactional
-    public ConfigVO setPromptEnabled(Long id, boolean enabled) {
+    public PromptConfigVO setPromptEnabled(Long id, boolean enabled) {
         SecurityUtils.requireAdmin();
         PromptTemplate template = requirePrompt(id);
         template.setEnabled(enabled);
         promptRepository.updateById(template);
-        return ConfigVO.from(template);
+        operationLogService.record("SET_PROMPT_ENABLED", "PROMPT_TEMPLATE", id, String.valueOf(enabled));
+        return PromptConfigVO.from(template);
     }
 
     @Transactional
     public void deletePrompt(Long id) {
         SecurityUtils.requireAdmin();
-        requirePrompt(id);
+        PromptTemplate template = requirePrompt(id);
+        if (Boolean.TRUE.equals(template.getDefaultTemplate())) {
+            throw BusinessException.badRequest("default prompt template cannot be deleted");
+        }
         promptRepository.deleteById(id);
+        operationLogService.record("DELETE_PROMPT", "PROMPT_TEMPLATE", id, template.getName());
     }
 
     public String defaultRagPrompt() {
         PromptTemplate template = promptRepository.selectOne(new LambdaQueryWrapper<PromptTemplate>()
-                .eq(PromptTemplate::getScene, "RAG")
+                .eq(PromptTemplate::getScene, "QA")
                 .eq(PromptTemplate::getEnabled, true)
-                .eq(PromptTemplate::getDefaultTemplate, true)
                 .orderByDesc(PromptTemplate::getUpdateTime)
                 .last("limit 1"));
         return template == null || !StringUtils.hasText(template.getContent()) ? FALLBACK_RAG_PROMPT : template.getContent();
-    }
-
-    public AiModelConfig defaultModelConfig() {
-        return modelRepository.selectOne(new LambdaQueryWrapper<AiModelConfig>()
-                .eq(AiModelConfig::getEnabled, true)
-                .eq(AiModelConfig::getDefaultModel, true)
-                .orderByDesc(AiModelConfig::getUpdateTime)
-                .last("limit 1"));
     }
 
     public AiModelConfig requireEnabledLlmConfig() {
@@ -197,33 +193,34 @@ public class ConfigService {
         return selected;
     }
 
-    public List<ConfigVO> systemConfigs() {
+    public SystemSettingsVO systemSettings() {
         SecurityUtils.requireAdmin();
-        return systemRepository.selectList(new LambdaQueryWrapper<SystemConfig>()
-                        .orderByDesc(SystemConfig::getCreateTime))
-                .stream()
-                .map(ConfigVO::from)
-                .toList();
+        int maxFileSize = intConfig("upload.maxFileSizeMb", 20);
+        String allowedTypes = strConfig("upload.allowedTypes", "PDF,DOCX,TXT,MD");
+        int chunkSize = intConfig("rag.chunkSize", 1000);
+        int chunkOverlap = intConfig("rag.chunkOverlap", 100);
+        int topK = intConfig("rag.topK", 5);
+        double similarityThreshold = doubleConfig("rag.minScore", 0.3);
+        String platformName = strConfig("platform.name", "KnowFlow AI");
+        String adminEmail = strConfig("platform.adminEmail", "");
+        return new SystemSettingsVO(maxFileSize,
+                Arrays.stream(allowedTypes.split(",")).map(String::trim).filter(StringUtils::hasText).toList(),
+                chunkSize, chunkOverlap, topK, similarityThreshold, platformName, adminEmail);
     }
 
     @Transactional
-    public ConfigVO saveSystemConfig(SystemConfigRequest request) {
+    public SystemSettingsVO saveSystemSettings(SystemSettingsSaveRequest request) {
         SecurityUtils.requireAdmin();
-        SystemConfig config = systemRepository.selectOne(new LambdaQueryWrapper<SystemConfig>()
-                .eq(SystemConfig::getConfigKey, request.configKey())
-                .last("limit 1"));
-        if (config == null) {
-            config = new SystemConfig();
-            config.setConfigKey(request.configKey());
-        }
-        config.setConfigValue(request.configValue());
-        config.setDescription(request.description());
-        if (config.getId() == null) {
-            systemRepository.insert(config);
-        } else {
-            systemRepository.updateById(config);
-        }
-        return ConfigVO.from(config);
+        saveSystemConfigValue("upload.maxFileSizeMb", String.valueOf(request.maxFileSize()), "Max upload file size MB");
+        saveSystemConfigValue("upload.allowedTypes", String.join(",", request.allowedTypes()), "Allowed upload file types");
+        saveSystemConfigValue("rag.chunkSize", String.valueOf(request.chunkSize()), "RAG chunk size");
+        saveSystemConfigValue("rag.chunkOverlap", String.valueOf(request.chunkOverlap()), "RAG chunk overlap");
+        saveSystemConfigValue("rag.topK", String.valueOf(request.topK()), "RAG topK");
+        saveSystemConfigValue("rag.minScore", String.valueOf(request.similarityThreshold()), "RAG similarity threshold");
+        saveSystemConfigValue("platform.name", request.platformName(), "Platform name");
+        saveSystemConfigValue("platform.adminEmail", request.adminEmail() == null ? "" : request.adminEmail(), "Platform admin email");
+        operationLogService.record("SAVE_SYSTEM_CONFIG", "SYSTEM_CONFIG", null, "save structured settings");
+        return systemSettings();
     }
 
     @Transactional
@@ -267,14 +264,17 @@ public class ConfigService {
         config.setDescription(request.description());
     }
 
-    private void fillPrompt(PromptTemplate template, PromptTemplateRequest request) {
-        template.setCode(request.code());
+    private void fillPrompt(PromptTemplate template, PromptConfigRequest request) {
+        String type = request.type().toUpperCase(Locale.ROOT);
+        if (!Set.of("QA", "SUMMARY", "KEYWORD", "TITLE").contains(type)) {
+            throw BusinessException.badRequest("invalid prompt type");
+        }
         template.setName(request.name());
+        template.setCode(type + "_" + request.name().replaceAll("\\s+", "_").toUpperCase(Locale.ROOT));
         template.setContent(request.content());
-        template.setScene(request.scene());
+        template.setScene(type);
         template.setEnabled(request.enabled() == null || request.enabled());
-        template.setDefaultTemplate(Boolean.TRUE.equals(request.defaultTemplate()));
-        template.setDescription(request.description());
+        template.setDescription(request.name());
     }
 
     private void clearDefaultModels(Long excludeId) {
@@ -287,16 +287,52 @@ public class ConfigService {
                 });
     }
 
-    private void clearDefaultPrompts(String scene, Long excludeId) {
-        promptRepository.selectList(new LambdaQueryWrapper<PromptTemplate>()
-                        .eq(PromptTemplate::getScene, scene)
-                        .eq(PromptTemplate::getDefaultTemplate, true))
-                .forEach(item -> {
-                    if (excludeId == null || !excludeId.equals(item.getId())) {
-                        item.setDefaultTemplate(false);
-                        promptRepository.updateById(item);
-                    }
-                });
+    private void saveSystemConfigValue(String key, String value, String description) {
+        SystemConfig config = systemRepository.selectOne(new LambdaQueryWrapper<SystemConfig>()
+                .eq(SystemConfig::getConfigKey, key)
+                .last("limit 1"));
+        if (config == null) {
+            config = new SystemConfig();
+            config.setConfigKey(key);
+            config.setConfigValue(value);
+            config.setDescription(description);
+            systemRepository.insert(config);
+            return;
+        }
+        config.setConfigValue(value);
+        config.setDescription(description);
+        systemRepository.updateById(config);
+    }
+
+    private int intConfig(String key, int fallback) {
+        String value = strConfig(key, null);
+        if (!StringUtils.hasText(value)) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
+    }
+
+    private double doubleConfig(String key, double fallback) {
+        String value = strConfig(key, null);
+        if (!StringUtils.hasText(value)) {
+            return fallback;
+        }
+        try {
+            return Double.parseDouble(value);
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
+    }
+
+    private String strConfig(String key, String fallback) {
+        SystemConfig config = systemRepository.selectOne(new LambdaQueryWrapper<SystemConfig>()
+                .eq(SystemConfig::getConfigKey, key)
+                .last("limit 1"));
+        return config == null ? fallback : config.getConfigValue();
     }
 
     private boolean isLlm(AiModelConfig config) {
