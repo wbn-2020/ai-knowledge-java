@@ -15,6 +15,8 @@ import com.knowflow.mapper.DocumentRepository;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.stream.DoubleStream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class DocumentProcessService {
+    private static final Logger log = LoggerFactory.getLogger(DocumentProcessService.class);
+
     private final DocumentRepository documentRepository;
     private final DocumentChunkRepository chunkRepository;
     private final DocumentProcessTaskRepository taskRepository;
@@ -47,9 +51,23 @@ public class DocumentProcessService {
     @Async
     @Transactional
     public void processAsync(Long taskId) {
-        DocumentProcessTask task = taskRepository.selectById(taskId);
-        Document document = documentRepository.selectById(task.getDocumentId());
+        DocumentProcessTask task = null;
+        Document document = null;
         try {
+            task = taskRepository.selectById(taskId);
+            if (task == null) {
+                log.error("Document process task not found, taskId={}", taskId);
+                return;
+            }
+            document = documentRepository.selectById(task.getDocumentId());
+            if (document == null) {
+                task.setStatus(TaskStatus.FAILED);
+                task.setFailReason("document not found, documentId=" + task.getDocumentId());
+                taskRepository.updateById(task);
+                log.error("Document not found for task, taskId={}, documentId={}", taskId, task.getDocumentId());
+                return;
+            }
+
             task.setStatus(TaskStatus.PROCESSING);
             document.setParseStatus(DocumentParseStatus.PARSING);
             document.setEmbeddingStatus(EmbeddingStatus.PROCESSING);
@@ -77,14 +95,23 @@ public class DocumentProcessService {
             document.setEmbeddingStatus(EmbeddingStatus.SUCCESS);
             document.setErrorMessage(null);
         } catch (Exception ex) {
-            task.setStatus(TaskStatus.FAILED);
-            task.setFailReason(ex.getMessage());
-            document.setParseStatus(DocumentParseStatus.FAILED);
-            document.setEmbeddingStatus(EmbeddingStatus.FAILED);
-            document.setErrorMessage(ex.getMessage());
+            log.error("Document process failed, taskId={}", taskId, ex);
+            if (task != null) {
+                task.setStatus(TaskStatus.FAILED);
+                task.setFailReason(ex.getMessage());
+            }
+            if (document != null) {
+                document.setParseStatus(DocumentParseStatus.FAILED);
+                document.setEmbeddingStatus(EmbeddingStatus.FAILED);
+                document.setErrorMessage(ex.getMessage());
+            }
         }
-        taskRepository.updateById(task);
-        documentRepository.updateById(document);
+        if (task != null) {
+            taskRepository.updateById(task);
+        }
+        if (document != null) {
+            documentRepository.updateById(document);
+        }
     }
 
     private String serialize(double[] vector) {

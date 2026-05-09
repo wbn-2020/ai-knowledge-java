@@ -24,9 +24,13 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -35,6 +39,7 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class DocumentService {
     private static final Set<String> ALLOWED_TYPES = Set.of("pdf", "docx", "txt", "md");
+    private static final Logger log = LoggerFactory.getLogger(DocumentService.class);
 
     private final DocumentRepository documentRepository;
     private final DocumentProcessTaskRepository taskRepository;
@@ -97,7 +102,7 @@ public class DocumentService {
         knowledgeBaseRepository.updateById(kb);
 
         DocumentProcessTask task = createTask(document);
-        processService.processAsync(task.getId());
+        triggerProcessAfterCommit(task.getId(), document.getId());
         return DocumentVO.from(document);
     }
 
@@ -179,7 +184,7 @@ public class DocumentService {
         document.setErrorMessage(null);
         documentRepository.updateById(document);
         DocumentProcessTask task = createTask(document);
-        processService.processAsync(task.getId());
+        triggerProcessAfterCommit(task.getId(), document.getId());
         return DocumentVO.from(document);
     }
 
@@ -203,7 +208,7 @@ public class DocumentService {
         document.setErrorMessage(null);
         documentRepository.updateById(document);
         DocumentProcessTask task = createTask(document);
-        processService.processAsync(task.getId());
+        triggerProcessAfterCommit(task.getId(), document.getId());
         return DocumentVO.from(document);
     }
 
@@ -232,7 +237,24 @@ public class DocumentService {
         task.setDocumentId(document.getId());
         task.setStatus(TaskStatus.PENDING);
         taskRepository.insert(task);
+        if (task.getId() == null) {
+            throw BusinessException.badRequest("document process task id not generated");
+        }
         return task;
+    }
+
+    private void triggerProcessAfterCommit(Long taskId, Long documentId) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            log.warn("No active transaction sync, process task immediately. taskId={}, documentId={}", taskId, documentId);
+            processService.processAsync(taskId);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                processService.processAsync(taskId);
+            }
+        });
     }
 
     private String extension(String filename) {
