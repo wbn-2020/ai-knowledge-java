@@ -1,4 +1,16 @@
 package com.knowflow.vo;
 
-public record SearchResultVO(Long documentId, Long chunkId, String documentName, String content, double score) {
+public record SearchResultVO(
+        Long documentId,
+        String documentName,
+        Long chunkId,
+        Integer chunkIndex,
+        String vectorId,
+        String content,
+        double vectorScore,
+        double keywordScore,
+        double finalScore,
+        double score,
+        String hitReason
+) {
 }

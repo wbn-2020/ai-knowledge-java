@@ -7,6 +7,10 @@ import com.knowflow.common.BaseEntity;
 @TableName("ai_call_log")
 public class AiCallLog extends BaseEntity {
     private Long userId;
+    @TableField("knowledge_base_id")
+    private Long knowledgeBaseId;
+    @TableField("session_id")
+    private Long sessionId;
     private String model;
     private String modelName;
     private String modelType;
@@ -24,6 +28,10 @@ public class AiCallLog extends BaseEntity {
 
     public Long getUserId() { return userId; }
     public void setUserId(Long userId) { this.userId = userId; }
+    public Long getKnowledgeBaseId() { return knowledgeBaseId; }
+    public void setKnowledgeBaseId(Long knowledgeBaseId) { this.knowledgeBaseId = knowledgeBaseId; }
+    public Long getSessionId() { return sessionId; }
+    public void setSessionId(Long sessionId) { this.sessionId = sessionId; }
     public String getModel() { return model; }
     public void setModel(String model) { this.model = model; }
     public String getModelName() { return modelName; }

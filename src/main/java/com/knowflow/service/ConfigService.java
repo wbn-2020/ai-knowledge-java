@@ -200,7 +200,8 @@ public class ConfigService {
         int chunkSize = intConfig("rag.chunkSize", 1000);
         int chunkOverlap = intConfig("rag.chunkOverlap", 100);
         int topK = intConfig("rag.topK", 5);
-        double similarityThreshold = doubleConfig("rag.minScore", 0.3);
+        double similarityThreshold = doubleConfig("rag.similarityThreshold",
+                doubleConfig("rag.minScore", 0.65));
         String platformName = strConfig("platform.name", "KnowFlow AI");
         String adminEmail = strConfig("platform.adminEmail", "");
         return new SystemSettingsVO(maxFileSize,
@@ -216,7 +217,8 @@ public class ConfigService {
         saveSystemConfigValue("rag.chunkSize", String.valueOf(request.chunkSize()), "RAG chunk size");
         saveSystemConfigValue("rag.chunkOverlap", String.valueOf(request.chunkOverlap()), "RAG chunk overlap");
         saveSystemConfigValue("rag.topK", String.valueOf(request.topK()), "RAG topK");
-        saveSystemConfigValue("rag.minScore", String.valueOf(request.similarityThreshold()), "RAG similarity threshold");
+        saveSystemConfigValue("rag.similarityThreshold", String.valueOf(request.similarityThreshold()), "RAG similarity threshold");
+        saveSystemConfigValue("rag.minScore", String.valueOf(request.similarityThreshold()), "RAG similarity threshold (legacy key)");
         saveSystemConfigValue("platform.name", request.platformName(), "Platform name");
         saveSystemConfigValue("platform.adminEmail", request.adminEmail() == null ? "" : request.adminEmail(), "Platform admin email");
         operationLogService.record("SAVE_SYSTEM_CONFIG", "SYSTEM_CONFIG", null, "save structured settings");

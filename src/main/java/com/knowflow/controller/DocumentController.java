@@ -6,6 +6,7 @@ import com.knowflow.dto.RenameDocumentRequest;
 import com.knowflow.enums.DocumentParseStatus;
 import com.knowflow.enums.EmbeddingStatus;
 import com.knowflow.service.DocumentService;
+import com.knowflow.vo.DocumentChunkVO;
 import com.knowflow.vo.DocumentVO;
 import jakarta.validation.Valid;
 import java.io.IOException;
@@ -45,14 +46,23 @@ public class DocumentController {
                                                       @RequestParam(defaultValue = "") String keyword,
                                                       @RequestParam(required = false) DocumentParseStatus parseStatus,
                                                       @RequestParam(required = false) EmbeddingStatus embeddingStatus,
+                                                      @RequestParam(required = false) EmbeddingStatus vectorStatus,
                                                       @RequestParam(defaultValue = "1") int pageNo,
                                                       @RequestParam(defaultValue = "10") int pageSize) {
-        return ApiResponse.ok(documentService.page(knowledgeBaseId, keyword, parseStatus, embeddingStatus, pageNo, pageSize));
+        EmbeddingStatus finalEmbeddingStatus = embeddingStatus != null ? embeddingStatus : vectorStatus;
+        return ApiResponse.ok(documentService.page(knowledgeBaseId, keyword, parseStatus, finalEmbeddingStatus, pageNo, pageSize));
     }
 
     @GetMapping("/{id}")
     public ApiResponse<DocumentVO> detail(@PathVariable Long id) {
         return ApiResponse.ok(documentService.detail(id));
+    }
+
+    @GetMapping("/{id}/chunks")
+    public ApiResponse<PageResponse<DocumentChunkVO>> chunks(@PathVariable Long id,
+                                                             @RequestParam(defaultValue = "1") int pageNo,
+                                                             @RequestParam(defaultValue = "10") int pageSize) {
+        return ApiResponse.ok(documentService.pageChunks(id, pageNo, pageSize));
     }
 
     @DeleteMapping("/{id}")

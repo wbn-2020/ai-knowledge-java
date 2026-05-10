@@ -13,13 +13,15 @@ public interface DocumentProcessTaskRepository extends BaseMapper<DocumentProces
         return selectPage(page, new LambdaQueryWrapper<DocumentProcessTask>().orderByDesc(DocumentProcessTask::getCreateTime));
     }
 
-    default Page<DocumentProcessTask> findByFilters(TaskStatus status, String taskType, String keyword, Page<DocumentProcessTask> page) {
+    default Page<DocumentProcessTask> findByFilters(TaskStatus status, String taskType, Long documentId, String keyword, Page<DocumentProcessTask> page) {
         Long keywordAsDocId = parseLong(keyword);
         return selectPage(page, new LambdaQueryWrapper<DocumentProcessTask>()
                 .eq(status != null, DocumentProcessTask::getStatus, status)
                 .eq(taskType != null && !taskType.isBlank(), DocumentProcessTask::getTaskType, taskType)
+                .eq(documentId != null, DocumentProcessTask::getDocumentId, documentId)
                 .and(keyword != null && !keyword.isBlank(),
                         q -> q.like(DocumentProcessTask::getFailReason, keyword)
+                              .like(DocumentProcessTask::getTaskType, keyword)
                               .or(keywordAsDocId != null)
                               .eq(keywordAsDocId != null, DocumentProcessTask::getDocumentId, keywordAsDocId))
                 .orderByDesc(DocumentProcessTask::getCreateTime));

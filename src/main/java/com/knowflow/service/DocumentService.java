@@ -10,13 +10,14 @@ import com.knowflow.entity.KnowledgeBase;
 import com.knowflow.enums.DocumentParseStatus;
 import com.knowflow.enums.EmbeddingStatus;
 import com.knowflow.enums.TaskStatus;
+import com.knowflow.mapper.ChatMessageReferenceRepository;
 import com.knowflow.mapper.DocumentChunkRepository;
 import com.knowflow.mapper.DocumentProcessTaskRepository;
 import com.knowflow.mapper.DocumentRepository;
 import com.knowflow.mapper.KnowledgeBaseRepository;
+import com.knowflow.mapper.UserRepository;
 import com.knowflow.security.SecurityUtils;
-import com.knowflow.service.KnowledgeBaseService;
-import com.knowflow.service.RuntimeConfigService;
+import com.knowflow.vo.DocumentChunkVO;
 import com.knowflow.vo.DocumentVO;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -34,8 +35,6 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
-
-
 @Service
 public class DocumentService {
     private static final Set<String> ALLOWED_TYPES = Set.of("pdf", "docx", "txt", "md");
@@ -44,7 +43,9 @@ public class DocumentService {
     private final DocumentRepository documentRepository;
     private final DocumentProcessTaskRepository taskRepository;
     private final DocumentChunkRepository chunkRepository;
+    private final ChatMessageReferenceRepository referenceRepository;
     private final KnowledgeBaseRepository knowledgeBaseRepository;
+    private final UserRepository userRepository;
     private final KnowledgeBaseService knowledgeBaseService;
     private final DocumentProcessService processService;
     private final RuntimeConfigService runtimeConfigService;
@@ -53,7 +54,9 @@ public class DocumentService {
     public DocumentService(DocumentRepository documentRepository,
                            DocumentProcessTaskRepository taskRepository,
                            DocumentChunkRepository chunkRepository,
+                           ChatMessageReferenceRepository referenceRepository,
                            KnowledgeBaseRepository knowledgeBaseRepository,
+                           UserRepository userRepository,
                            KnowledgeBaseService knowledgeBaseService,
                            DocumentProcessService processService,
                            RuntimeConfigService runtimeConfigService,
@@ -61,7 +64,9 @@ public class DocumentService {
         this.documentRepository = documentRepository;
         this.taskRepository = taskRepository;
         this.chunkRepository = chunkRepository;
+        this.referenceRepository = referenceRepository;
         this.knowledgeBaseRepository = knowledgeBaseRepository;
+        this.userRepository = userRepository;
         this.knowledgeBaseService = knowledgeBaseService;
         this.processService = processService;
         this.runtimeConfigService = runtimeConfigService;
@@ -70,6 +75,9 @@ public class DocumentService {
 
     @Transactional
     public DocumentVO upload(Long knowledgeBaseId, MultipartFile file) throws IOException {
+        if (knowledgeBaseId == null) {
+            throw BusinessException.badRequest("请选择知识库后再上传文档");
+        }
         KnowledgeBase kb = knowledgeBaseService.requireOwned(knowledgeBaseId);
         String originalName = file.getOriginalFilename() == null ? "document" : file.getOriginalFilename();
         String fileType = extension(originalName);
@@ -103,7 +111,7 @@ public class DocumentService {
 
         DocumentProcessTask task = createTask(document);
         triggerProcessAfterCommit(task.getId(), document.getId());
-        return DocumentVO.from(document);
+        return enrichDocument(DocumentVO.from(document));
     }
 
     public PageResponse<DocumentVO> page(Long knowledgeBaseId,
@@ -124,11 +132,20 @@ public class DocumentService {
                         parseStatus,
                         embeddingStatus,
                         new Page<>(pageNo, pageSize))
-                .convert(DocumentVO::from));
+                .convert(DocumentVO::from)
+                .convert(this::enrichDocument));
     }
 
     public DocumentVO detail(Long id) {
-        return DocumentVO.from(requireOwned(id));
+        return enrichDocument(DocumentVO.from(requireOwned(id)));
+    }
+
+    public PageResponse<DocumentChunkVO> pageChunks(Long id, int pageNo, int pageSize) {
+        Document document = requireOwned(id);
+        Long userId = SecurityUtils.getCurrentUserId();
+        return PageResponse.of(chunkRepository.findByUserIdAndDocumentIdOrderByChunkIndexAsc(
+                        userId, document.getId(), new Page<>(pageNo, pageSize))
+                .convert(DocumentChunkVO::from));
     }
 
     @Transactional
@@ -136,7 +153,7 @@ public class DocumentService {
         Document document = requireOwned(id);
         document.setName(name);
         documentRepository.updateById(document);
-        return DocumentVO.from(document);
+        return enrichDocument(DocumentVO.from(document));
     }
 
     public String preview(Long id) {
@@ -161,23 +178,15 @@ public class DocumentService {
     @Transactional
     public void delete(Long id) {
         Document document = requireOwned(id);
-        document.setDeleted(true);
-        documentRepository.updateById(document);
-        chunkRepository.deleteByDocumentId(id);
-        try {
-            Files.deleteIfExists(Path.of(document.getFilePath()));
-        } catch (IOException ignored) {
-        }
-        knowledgeBaseRepository.findByIdAndUserIdAndDeletedFalse(document.getKnowledgeBaseId(), document.getUserId())
-                .ifPresent(kb -> {
-                    kb.setDocumentCount(Math.max(0, kb.getDocumentCount() - 1));
-                    knowledgeBaseRepository.updateById(kb);
-                });
+        doDelete(document, SecurityUtils.getCurrentUserId());
     }
 
     @Transactional
     public DocumentVO retry(Long id) {
         Document document = requireOwned(id);
+        if (document.getKnowledgeBaseId() == null) {
+            throw BusinessException.badRequest("文档未关联知识库，请重新上传到指定知识库");
+        }
         chunkRepository.deleteByDocumentId(id);
         document.setParseStatus(DocumentParseStatus.PENDING);
         document.setEmbeddingStatus(EmbeddingStatus.PENDING);
@@ -185,23 +194,34 @@ public class DocumentService {
         documentRepository.updateById(document);
         DocumentProcessTask task = createTask(document);
         triggerProcessAfterCommit(task.getId(), document.getId());
-        return DocumentVO.from(document);
+        return enrichDocument(DocumentVO.from(document));
     }
 
     public Document requireOwned(Long id) {
         return documentRepository.findByIdAndUserIdAndDeletedFalse(id, SecurityUtils.getCurrentUserId())
-                .orElseThrow(() -> BusinessException.notFound("文档不存在"));
+                .orElseThrow(() -> BusinessException.notFound("文档不存在或已删除"));
     }
 
     public DocumentVO adminDetail(Long id) {
-        return documentRepository.findByIdAndDeletedFalse(id).map(DocumentVO::from)
+        return documentRepository.findByIdAndDeletedFalse(id)
+                .map(DocumentVO::from)
+                .map(this::enrichDocument)
                 .orElseThrow(() -> BusinessException.notFound("document not found"));
+    }
+
+    public PageResponse<DocumentChunkVO> adminPageChunks(Long id, int pageNo, int pageSize) {
+        documentRepository.findByIdAndDeletedFalse(id).orElseThrow(() -> BusinessException.notFound("document not found"));
+        return PageResponse.of(chunkRepository.findByDocumentIdOrderByChunkIndexAsc(id, new Page<>(pageNo, pageSize))
+                .convert(DocumentChunkVO::from));
     }
 
     @Transactional
     public DocumentVO adminRetry(Long id) {
         Document document = documentRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> BusinessException.notFound("document not found"));
+        if (document.getKnowledgeBaseId() == null) {
+            throw BusinessException.badRequest("文档未关联知识库，请重新上传到指定知识库");
+        }
         chunkRepository.deleteByDocumentId(id);
         document.setParseStatus(DocumentParseStatus.PENDING);
         document.setEmbeddingStatus(EmbeddingStatus.PENDING);
@@ -209,25 +229,45 @@ public class DocumentService {
         documentRepository.updateById(document);
         DocumentProcessTask task = createTask(document);
         triggerProcessAfterCommit(task.getId(), document.getId());
-        return DocumentVO.from(document);
+        return enrichDocument(DocumentVO.from(document));
     }
 
     @Transactional
     public void adminDelete(Long id) {
         Document document = documentRepository.findByIdAndDeletedFalse(id)
                 .orElseThrow(() -> BusinessException.notFound("document not found"));
-        document.setDeleted(true);
-        documentRepository.updateById(document);
-        chunkRepository.deleteByDocumentId(id);
+        doDelete(document, SecurityUtils.getCurrentUserId());
+    }
+
+    private void doDelete(Document document, Long operatorUserId) {
+        int documentDeletedUpdatedRows = documentRepository.deleteById(document.getId());
+        if (documentDeletedUpdatedRows <= 0) {
+            throw BusinessException.notFound("文档不存在或已删除");
+        }
+
+        int chunkDeletedUpdatedRows = chunkRepository.deleteByDocumentId(document.getId());
+        int referenceDeletedUpdatedRows = referenceRepository.deleteByDocumentId(document.getId());
+
         try {
             Files.deleteIfExists(Path.of(document.getFilePath()));
         } catch (IOException ignored) {
         }
-        knowledgeBaseRepository.findByIdAndUserIdAndDeletedFalse(document.getKnowledgeBaseId(), document.getUserId())
+
+        long recalculatedDocumentCount = documentRepository.countByKnowledgeBaseIdAndDeletedFalse(document.getKnowledgeBaseId());
+        knowledgeBaseRepository.findByIdAndDeletedFalse(document.getKnowledgeBaseId())
                 .ifPresent(kb -> {
-                    kb.setDocumentCount(Math.max(0, kb.getDocumentCount() - 1));
+                    kb.setDocumentCount((int) recalculatedDocumentCount);
                     knowledgeBaseRepository.updateById(kb);
                 });
+
+        log.info("Document deleted: documentId={}, userId={}, knowledgeBaseId={}, documentDeletedUpdatedRows={}, chunkDeletedUpdatedRows={}, referenceDeletedUpdatedRows={}, recalculatedDocumentCount={}",
+                document.getId(),
+                operatorUserId,
+                document.getKnowledgeBaseId(),
+                documentDeletedUpdatedRows,
+                chunkDeletedUpdatedRows,
+                referenceDeletedUpdatedRows,
+                recalculatedDocumentCount);
     }
 
     private DocumentProcessTask createTask(Document document) {
@@ -275,5 +315,23 @@ public class DocumentService {
                 .map(String::toLowerCase)
                 .filter(StringUtils::hasText)
                 .collect(java.util.stream.Collectors.toSet());
+    }
+
+    private DocumentVO enrichDocument(DocumentVO base) {
+        String knowledgeBaseName = null;
+        if (base.knowledgeBaseId() != null) {
+            knowledgeBaseName = knowledgeBaseRepository.findByIdAndDeletedFalse(base.knowledgeBaseId())
+                    .map(KnowledgeBase::getName)
+                    .orElse(null);
+        }
+        Long uid = base.userId() != null ? base.userId() : base.uploaderId();
+        String uploaderName = null;
+        if (uid != null) {
+            uploaderName = userRepository.findByIdAndDeletedFalse(uid)
+                    .map(user -> StringUtils.hasText(user.getNickname()) ? user.getNickname() : user.getUsername())
+                    .orElse(null);
+        }
+        Long chunkCount = chunkRepository.countByDocumentId(base.id());
+        return DocumentVO.enrich(base, knowledgeBaseName, uploaderName, chunkCount);
     }
 }

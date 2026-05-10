@@ -13,4 +13,9 @@ public interface ChatMessageReferenceRepository extends BaseMapper<ChatMessageRe
                 .eq(ChatMessageReference::getUserId, userId)
                 .eq(ChatMessageReference::getMessageId, messageId));
     }
+
+    default int deleteByDocumentId(Long documentId) {
+        return delete(new LambdaQueryWrapper<ChatMessageReference>()
+                .eq(ChatMessageReference::getDocumentId, documentId));
+    }
 }

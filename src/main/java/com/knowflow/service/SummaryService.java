@@ -27,6 +27,7 @@ public class SummaryService {
     private final KnowledgeBaseSummaryRepository knowledgeBaseSummaryRepository;
     private final ConfigService configService;
     private final LlmClient llmClient;
+    private final LogService logService;
 
     public SummaryService(DocumentService documentService,
                           KnowledgeBaseService knowledgeBaseService,
@@ -34,7 +35,8 @@ public class SummaryService {
                           DocumentSummaryRepository documentSummaryRepository,
                           KnowledgeBaseSummaryRepository knowledgeBaseSummaryRepository,
                           ConfigService configService,
-                          LlmClient llmClient) {
+                          LlmClient llmClient,
+                          LogService logService) {
         this.documentService = documentService;
         this.knowledgeBaseService = knowledgeBaseService;
         this.chunkRepository = chunkRepository;
@@ -42,17 +44,34 @@ public class SummaryService {
         this.knowledgeBaseSummaryRepository = knowledgeBaseSummaryRepository;
         this.configService = configService;
         this.llmClient = llmClient;
+        this.logService = logService;
     }
 
     public SummaryVO documentSummary(Long documentId) {
         Document document = documentService.requireOwned(documentId);
+        Long userId = SecurityUtils.getCurrentUserId();
         AiModelConfig modelConfig = selectEnabledLlmConfig();
         String content = chunkRepository.findByDocumentIdAndDeletedFalseOrderByChunkIndexAsc(documentId).stream()
                 .limit(8)
                 .map(chunk -> chunk.getContent())
                 .collect(Collectors.joining("\n\n"));
-        String summaryText = llmClient.complete("Summarize the following document content clearly and accurately:\n" + content, modelConfig);
-        Long userId = SecurityUtils.getCurrentUserId();
+        long start = System.currentTimeMillis();
+        String summaryText;
+        try {
+            summaryText = llmClient.complete("Summarize the following document content clearly and accurately:\n" + content, modelConfig);
+            logService.recordAiCall(
+                    userId, document.getKnowledgeBaseId(), null, modelConfig.getModelName(),
+                    resolveModelType(modelConfig), modelConfig.getProvider(), "SUMMARY",
+                    System.currentTimeMillis() - start, true, null, estimateTokens(content), estimateTokens(summaryText)
+            );
+        } catch (RuntimeException ex) {
+            logService.recordAiCall(
+                    userId, document.getKnowledgeBaseId(), null, modelConfig.getModelName(),
+                    resolveModelType(modelConfig), modelConfig.getProvider(), "SUMMARY",
+                    System.currentTimeMillis() - start, false, ex.getMessage(), estimateTokens(content), null
+            );
+            throw ex;
+        }
         DocumentSummary summary = documentSummaryRepository.findByUserIdAndDocumentId(userId, document.getId()).orElseGet(DocumentSummary::new);
         if (summary.getId() == null) {
             summary.setUserId(userId);
@@ -87,7 +106,23 @@ public class SummaryService {
                 .limit(12)
                 .map(chunk -> chunk.getContent())
                 .collect(Collectors.joining("\n\n"));
-        String summaryText = llmClient.complete("Summarize this knowledge base and list the core topics and important points:\n" + content, modelConfig);
+        long start = System.currentTimeMillis();
+        String summaryText;
+        try {
+            summaryText = llmClient.complete("Summarize this knowledge base and list the core topics and important points:\n" + content, modelConfig);
+            logService.recordAiCall(
+                    userId, knowledgeBaseId, null, modelConfig.getModelName(),
+                    resolveModelType(modelConfig), modelConfig.getProvider(), "SUMMARY",
+                    System.currentTimeMillis() - start, true, null, estimateTokens(content), estimateTokens(summaryText)
+            );
+        } catch (RuntimeException ex) {
+            logService.recordAiCall(
+                    userId, knowledgeBaseId, null, modelConfig.getModelName(),
+                    resolveModelType(modelConfig), modelConfig.getProvider(), "SUMMARY",
+                    System.currentTimeMillis() - start, false, ex.getMessage(), estimateTokens(content), null
+            );
+            throw ex;
+        }
         KnowledgeBaseSummary summary = knowledgeBaseSummaryRepository.findByUserIdAndKnowledgeBaseId(userId, knowledgeBaseId)
                 .orElseGet(KnowledgeBaseSummary::new);
         if (summary.getId() == null) {
@@ -130,5 +165,12 @@ public class SummaryService {
         }
         String modelName = config.getModelName() == null ? "" : config.getModelName().toLowerCase();
         return modelName.contains("embedding") ? "EMBEDDING" : "LLM";
+    }
+
+    private Integer estimateTokens(String text) {
+        if (!StringUtils.hasText(text)) {
+            return 0;
+        }
+        return Math.max(1, text.length() / 4);
     }
 }

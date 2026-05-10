@@ -54,11 +54,15 @@ public interface DocumentRepository extends BaseMapper<Document> {
 
     default Page<Document> findByAdminFilters(String keyword,
                                               Long knowledgeBaseId,
+                                              Long userId,
+                                              java.util.List<Long> userIds,
                                               DocumentParseStatus parseStatus,
                                               String fileType,
                                               Page<Document> page) {
         return selectPage(page, new LambdaQueryWrapper<Document>()
                 .eq(knowledgeBaseId != null, Document::getKnowledgeBaseId, knowledgeBaseId)
+                .eq(userId != null, Document::getUserId, userId)
+                .in(userIds != null && !userIds.isEmpty(), Document::getUserId, userIds)
                 .eq(parseStatus != null, Document::getParseStatus, parseStatus)
                 .eq(fileType != null && !fileType.isBlank(), Document::getFileType, fileType)
                 .like(keyword != null && !keyword.isBlank(), Document::getName, keyword)
@@ -94,5 +98,10 @@ public interface DocumentRepository extends BaseMapper<Document> {
 
     default long countByParseStatusAndDeletedFalse(DocumentParseStatus status) {
         return selectCount(new LambdaQueryWrapper<Document>().eq(Document::getParseStatus, status));
+    }
+
+    default long countByKnowledgeBaseIdAndDeletedFalse(Long knowledgeBaseId) {
+        return selectCount(new LambdaQueryWrapper<Document>()
+                .eq(Document::getKnowledgeBaseId, knowledgeBaseId));
     }
 }

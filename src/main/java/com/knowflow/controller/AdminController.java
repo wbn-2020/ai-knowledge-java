@@ -12,6 +12,7 @@ import com.knowflow.enums.UserStatus;
 import com.knowflow.service.AdminService;
 import com.knowflow.service.AuthService;
 import com.knowflow.vo.AdminOverviewVO;
+import com.knowflow.vo.DocumentChunkVO;
 import com.knowflow.vo.DocumentTaskVO;
 import com.knowflow.vo.DocumentVO;
 import com.knowflow.vo.KnowledgeBaseVO;
@@ -100,16 +101,25 @@ public class AdminController {
     @GetMapping("/documents")
     public ApiResponse<PageResponse<DocumentVO>> documents(@RequestParam(defaultValue = "") String keyword,
                                                            @RequestParam(required = false) Long knowledgeBaseId,
+                                                           @RequestParam(required = false) Long userId,
+                                                           @RequestParam(required = false) String username,
                                                            @RequestParam(required = false) DocumentParseStatus parseStatus,
                                                            @RequestParam(required = false) String fileType,
                                                            @RequestParam(defaultValue = "1") int pageNo,
                                                            @RequestParam(defaultValue = "10") int pageSize) {
-        return ApiResponse.ok(adminService.documents(keyword, knowledgeBaseId, parseStatus, fileType, pageNo, pageSize));
+        return ApiResponse.ok(adminService.documents(keyword, knowledgeBaseId, userId, username, parseStatus, fileType, pageNo, pageSize));
     }
 
     @GetMapping("/documents/{id}")
     public ApiResponse<DocumentVO> documentDetail(@PathVariable Long id) {
         return ApiResponse.ok(adminService.documentDetail(id));
+    }
+
+    @GetMapping("/documents/{id}/chunks")
+    public ApiResponse<PageResponse<DocumentChunkVO>> documentChunks(@PathVariable Long id,
+                                                                     @RequestParam(defaultValue = "1") int pageNo,
+                                                                     @RequestParam(defaultValue = "10") int pageSize) {
+        return ApiResponse.ok(adminService.documentChunks(id, pageNo, pageSize));
     }
 
     @DeleteMapping("/documents/{id}")
@@ -126,10 +136,11 @@ public class AdminController {
     @GetMapping("/document-tasks")
     public ApiResponse<PageResponse<DocumentTaskVO>> tasks(@RequestParam(required = false) TaskStatus status,
                                                            @RequestParam(required = false) String taskType,
+                                                           @RequestParam(required = false) Long documentId,
                                                            @RequestParam(defaultValue = "") String keyword,
                                                            @RequestParam(defaultValue = "1") int pageNo,
                                                            @RequestParam(defaultValue = "10") int pageSize) {
-        return ApiResponse.ok(adminService.tasks(status, taskType, keyword, pageNo, pageSize));
+        return ApiResponse.ok(adminService.tasks(status, taskType, documentId, keyword, pageNo, pageSize));
     }
 
     @PostMapping("/document-tasks/{id}/retry")

@@ -7,6 +7,9 @@ import java.time.LocalDateTime;
 
 public record DocumentVO(
         Long id,
+        Long userId,
+        Long uploaderId,
+        String uploaderName,
         Long knowledgeBaseId,
         String knowledgeBaseName,
         String ownerName,
@@ -17,6 +20,7 @@ public record DocumentVO(
         Long chunkCount,
         DocumentParseStatus parseStatus,
         EmbeddingStatus embeddingStatus,
+        EmbeddingStatus vectorStatus,
         String errorMessage,
         LocalDateTime createTime,
         LocalDateTime updateTime,
@@ -26,6 +30,9 @@ public record DocumentVO(
     public static DocumentVO from(Document document) {
         return new DocumentVO(
                 document.getId(),
+                document.getUserId(),
+                document.getUserId(),
+                null,
                 document.getKnowledgeBaseId(),
                 null,
                 null,
@@ -36,6 +43,7 @@ public record DocumentVO(
                 null,
                 document.getParseStatus(),
                 document.getEmbeddingStatus(),
+                document.getEmbeddingStatus(),
                 document.getErrorMessage(),
                 document.getCreateTime(),
                 document.getUpdateTime(),
@@ -44,18 +52,22 @@ public record DocumentVO(
         );
     }
 
-    public static DocumentVO enrich(DocumentVO base, String knowledgeBaseName, String ownerName, Long chunkCount) {
+    public static DocumentVO enrich(DocumentVO base, String knowledgeBaseName, String uploaderName, Long chunkCount) {
         return new DocumentVO(
                 base.id(),
+                base.userId(),
+                base.uploaderId(),
+                uploaderName,
                 base.knowledgeBaseId(),
                 knowledgeBaseName,
-                ownerName,
+                uploaderName,
                 base.name(),
                 base.originalName(),
                 base.fileType(),
                 base.fileSize(),
                 chunkCount,
                 base.parseStatus(),
+                base.embeddingStatus(),
                 base.embeddingStatus(),
                 base.errorMessage(),
                 base.createTime(),

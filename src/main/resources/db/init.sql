@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS document_process_task (
   user_id BIGINT NOT NULL,
   knowledge_base_id BIGINT NOT NULL,
   document_id BIGINT NOT NULL,
+  task_type VARCHAR(64),
   status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
   fail_reason VARCHAR(1024),
   create_time DATETIME NOT NULL,
@@ -103,6 +104,9 @@ CREATE TABLE IF NOT EXISTS chat_message (
   content LONGTEXT NOT NULL,
   model_name VARCHAR(128),
   token_count INT NOT NULL DEFAULT 0,
+  answer_type VARCHAR(32),
+  can_use_general_answer BIT NOT NULL DEFAULT 0,
+  references_json LONGTEXT,
   create_time DATETIME NOT NULL,
   update_time DATETIME NOT NULL,
   deleted BIT NOT NULL DEFAULT 0,
@@ -191,8 +195,16 @@ CREATE TABLE IF NOT EXISTS login_log (
 CREATE TABLE IF NOT EXISTS ai_call_log (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   user_id BIGINT NOT NULL,
+  knowledge_base_id BIGINT,
+  session_id BIGINT,
+  model VARCHAR(128),
   model_name VARCHAR(128),
+  model_type VARCHAR(64),
+  provider VARCHAR(64),
   call_type VARCHAR(64),
+  prompt_tokens INT,
+  completion_tokens INT,
+  total_tokens INT,
   elapsed_ms BIGINT,
   success BIT NOT NULL,
   fail_reason VARCHAR(1024),
@@ -303,6 +315,10 @@ WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE config_key = 'rag.topK');
 INSERT INTO system_config (config_key, config_value, description, create_time, update_time, deleted)
 SELECT 'rag.minScore', '0.05', 'Default retrieval minimum similarity score', NOW(), NOW(), 0
 WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE config_key = 'rag.minScore');
+
+INSERT INTO system_config (config_key, config_value, description, create_time, update_time, deleted)
+SELECT 'rag.similarityThreshold', '0.65', 'Default retrieval similarity threshold', NOW(), NOW(), 0
+WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE config_key = 'rag.similarityThreshold');
 
 INSERT INTO knowledge_base (user_id, name, description, icon, category, status, document_count, create_time, update_time, deleted)
 SELECT u.id, 'KnowFlow Demo KB', 'Demo knowledge base for backend smoke tests', 'book', 'demo', 'NORMAL', 1, NOW(), NOW(), 0

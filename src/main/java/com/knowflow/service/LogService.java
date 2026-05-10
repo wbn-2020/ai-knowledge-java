@@ -101,16 +101,39 @@ public class LogService {
     }
 
     public void recordAiCall(Long userId, String modelName, String callType, long elapsedMs, boolean success, String failReason) {
+        recordAiCall(userId, null, null, modelName, "CHAT".equalsIgnoreCase(callType) ? "LLM" : "EMBEDDING",
+                "DEEPSEEK", callType, elapsedMs, success, failReason, null, null);
+    }
+
+    public void recordAiCall(Long userId,
+                             Long knowledgeBaseId,
+                             Long sessionId,
+                             String modelName,
+                             String modelType,
+                             String provider,
+                             String scene,
+                             long durationMs,
+                             boolean success,
+                             String errorMessage,
+                             Integer inputTokens,
+                             Integer outputTokens) {
         AiCallLog log = new AiCallLog();
         log.setUserId(userId);
+        log.setKnowledgeBaseId(knowledgeBaseId);
+        log.setSessionId(sessionId);
         log.setModel(modelName);
         log.setModelName(modelName);
-        log.setModelType("CHAT".equalsIgnoreCase(callType) ? "LLM" : "EMBEDDING");
-        log.setProvider("DEEPSEEK");
-        log.setCallType(callType);
-        log.setElapsedMs(elapsedMs);
+        log.setModelType(modelType);
+        log.setProvider(provider);
+        log.setCallType(scene);
+        log.setPromptTokens(inputTokens);
+        log.setCompletionTokens(outputTokens);
+        if (inputTokens != null || outputTokens != null) {
+            log.setTotalTokens((inputTokens == null ? 0 : inputTokens) + (outputTokens == null ? 0 : outputTokens));
+        }
+        log.setElapsedMs(durationMs);
         log.setSuccess(success);
-        log.setFailReason(failReason);
+        log.setFailReason(errorMessage);
         aiCallLogRepository.insert(log);
     }
 

@@ -2,6 +2,7 @@ package com.knowflow.mapper;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.knowflow.entity.DocumentChunk;
 import java.util.List;
 
@@ -20,8 +21,21 @@ public interface DocumentChunkRepository extends BaseMapper<DocumentChunk> {
                 .orderByAsc(DocumentChunk::getChunkIndex));
     }
 
-    default void deleteByDocumentId(Long documentId) {
-        delete(new LambdaQueryWrapper<DocumentChunk>().eq(DocumentChunk::getDocumentId, documentId));
+    default Page<DocumentChunk> findByDocumentIdOrderByChunkIndexAsc(Long documentId, Page<DocumentChunk> page) {
+        return selectPage(page, new LambdaQueryWrapper<DocumentChunk>()
+                .eq(DocumentChunk::getDocumentId, documentId)
+                .orderByAsc(DocumentChunk::getChunkIndex));
+    }
+
+    default Page<DocumentChunk> findByUserIdAndDocumentIdOrderByChunkIndexAsc(Long userId, Long documentId, Page<DocumentChunk> page) {
+        return selectPage(page, new LambdaQueryWrapper<DocumentChunk>()
+                .eq(DocumentChunk::getUserId, userId)
+                .eq(DocumentChunk::getDocumentId, documentId)
+                .orderByAsc(DocumentChunk::getChunkIndex));
+    }
+
+    default int deleteByDocumentId(Long documentId) {
+        return delete(new LambdaQueryWrapper<DocumentChunk>().eq(DocumentChunk::getDocumentId, documentId));
     }
 
     default void deleteByKnowledgeBaseId(Long knowledgeBaseId) {
