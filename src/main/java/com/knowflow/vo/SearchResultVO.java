@@ -7,6 +7,7 @@ public record SearchResultVO(
         Integer chunkIndex,
         String vectorId,
         String content,
+        String snippet,
         double vectorScore,
         double keywordScore,
         double finalScore,

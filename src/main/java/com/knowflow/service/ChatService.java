@@ -27,6 +27,7 @@ import com.knowflow.mapper.ChatMessageReferenceRepository;
 import com.knowflow.mapper.ChatMessageRepository;
 import com.knowflow.mapper.ChatSessionRepository;
 import com.knowflow.mapper.DocumentChunkRepository;
+import com.knowflow.mapper.DocumentRepository;
 import com.knowflow.security.SecurityUtils;
 import com.knowflow.vo.AskVO;
 import com.knowflow.vo.ChatMessageVO;
@@ -37,7 +38,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -73,6 +76,7 @@ public class ChatService {
     private final ChatMessageReferenceRepository referenceRepository;
     private final ChatFeedbackRepository feedbackRepository;
     private final DocumentChunkRepository chunkRepository;
+    private final DocumentRepository documentRepository;
     private final LlmClient llmClient;
     private final LogService logService;
     private final ConfigService configService;
@@ -89,6 +93,7 @@ public class ChatService {
                        ChatMessageReferenceRepository referenceRepository,
                        ChatFeedbackRepository feedbackRepository,
                        DocumentChunkRepository chunkRepository,
+                       DocumentRepository documentRepository,
                        LlmClient llmClient,
                        LogService logService,
                        ConfigService configService,
@@ -104,6 +109,7 @@ public class ChatService {
         this.referenceRepository = referenceRepository;
         this.feedbackRepository = feedbackRepository;
         this.chunkRepository = chunkRepository;
+        this.documentRepository = documentRepository;
         this.llmClient = llmClient;
         this.logService = logService;
         this.configService = configService;
@@ -388,8 +394,6 @@ public class ChatService {
                         Boolean.TRUE,
                         Collections.emptyList()
                 );
-                log.debug("Chat answerType={}, canUseGeneralAnswer={}, valid references forced empty",
-                        AnswerType.NO_CONTEXT.name(), true);
                 return new AskVO(
                         session.getId(),
                         question,
@@ -434,8 +438,6 @@ public class ChatService {
                     Boolean.FALSE,
                     Collections.emptyList()
             );
-            log.debug("Chat answerType={}, canUseGeneralAnswer={}, valid references forced empty",
-                    AnswerType.GENERAL.name(), false);
             return new AskVO(
                     session.getId(),
                     question,
@@ -478,9 +480,8 @@ public class ChatService {
         List<ReferenceVO> responseReferences = validChunks.stream()
                 .map(this::toRetrievedReference)
                 .toList();
-        responseReferences.forEach(reference -> log.debug(
-                "Chat valid reference: chunkIndex={}, score={}, hitReason={}, snippet={}",
-                reference.chunkIndex(), reference.finalScore(), reference.hitReason(), brief(reference.content(), 100)));
+        responseReferences = enrichDocumentNames(responseReferences);
+        logReferences(question, AnswerType.RAG, responseReferences);
 
         ChatMessage assistantMessage = saveMessage(
                 userId,
@@ -492,10 +493,8 @@ public class ChatService {
                 Boolean.FALSE,
                 responseReferences
         );
-        validChunks.forEach(scored -> saveReference(userId, assistantMessage.getId(), scored));
+        responseReferences.forEach(reference -> saveReference(userId, assistantMessage.getId(), reference));
 
-        log.debug("Chat answerType={}, canUseGeneralAnswer={}, retrievalTopK={}, validReferencesCount={}, filteredLowScoreReferencesCount={}",
-                AnswerType.RAG.name(), false, topK(), responseReferences.size(), filteredLowScoreCount);
         return new AskVO(
                 session.getId(),
                 question,
@@ -513,7 +512,7 @@ public class ChatService {
     private List<ReferenceVO> readMessageReferences(Long userId, ChatMessage message) {
         List<ChatMessageReference> refs = referenceRepository.findByUserIdAndMessageIdAndDeletedFalse(userId, message.getId());
         if (CollectionUtils.isEmpty(refs)) {
-            return parseReferencesJson(message.getReferencesJson());
+            return enrichDocumentNames(parseReferencesJson(message.getReferencesJson()));
         }
         List<Long> chunkIds = refs.stream()
                 .map(ChatMessageReference::getChunkId)
@@ -524,9 +523,10 @@ public class ChatService {
                 ? Collections.emptyMap()
                 : chunkRepository.selectBatchIds(chunkIds).stream()
                 .collect(Collectors.toMap(DocumentChunk::getId, DocumentChunk::getChunkIndex, (a, b) -> a));
-        return refs.stream()
+        List<ReferenceVO> references = refs.stream()
                 .map(ref -> ReferenceVO.from(ref, chunkIndexMap.get(ref.getChunkId())))
                 .toList();
+        return enrichDocumentNames(references);
     }
 
     private List<ReferenceVO> parseReferencesJson(String referencesJson) {
@@ -571,6 +571,56 @@ public class ChatService {
                 roundScore(scored.finalScore()),
                 scored.hitReason()
         ));
+    }
+
+    private List<ReferenceVO> enrichDocumentNames(List<ReferenceVO> references) {
+        if (CollectionUtils.isEmpty(references)) {
+            return Collections.emptyList();
+        }
+        List<Long> documentIds = references.stream()
+                .map(ReferenceVO::documentId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (CollectionUtils.isEmpty(documentIds)) {
+            return references;
+        }
+        Map<Long, String> nameMap = documentRepository.selectBatchIds(documentIds).stream()
+                .collect(Collectors.toMap(Document::getId, Document::getName, (a, b) -> a));
+        return references.stream()
+                .map(reference -> {
+                    if (StringUtils.hasText(reference.documentName()) || reference.documentId() == null) {
+                        return reference;
+                    }
+                    String docName = nameMap.get(reference.documentId());
+                    if (!StringUtils.hasText(docName)) {
+                        log.warn("Reference documentName missing and document not found, documentId={}", reference.documentId());
+                        return reference;
+                    }
+                    return new ReferenceVO(
+                            reference.documentId(),
+                            docName,
+                            reference.chunkId(),
+                            reference.chunkIndex(),
+                            reference.vectorId(),
+                            reference.content(),
+                            reference.snippet(),
+                            reference.score(),
+                            reference.finalScore(),
+                            reference.hitReason()
+                    );
+                })
+                .toList();
+    }
+
+    private void logReferences(String query, AnswerType answerType, Collection<ReferenceVO> references) {
+        log.debug("Chat response references: query='{}', answerType={}, referencesCount={}",
+                query, answerType.name(), references.size());
+        for (ReferenceVO reference : references) {
+            log.debug("Ref item: documentId={}, documentName={}, chunkId={}, chunkIndex={}, hitReason={}, score={}, finalScore={}",
+                    reference.documentId(), reference.documentName(), reference.chunkId(), reference.chunkIndex(),
+                    reference.hitReason(), reference.score(), reference.finalScore());
+        }
     }
 
     private KnowledgeBase requireUsableKnowledgeBase(Long id) {
@@ -645,38 +695,17 @@ public class ChatService {
     private RetrievalResult retrieveByKnowledgeBases(Long userId, List<Long> knowledgeBaseIds, String question) {
         RetrievalService.RetrievalResult result = retrievalService.retrieveByKnowledgeBases(
                 knowledgeBaseIds, userId, question, topK(), "hybrid", similarityThreshold());
-        List<ScoredChunk> scoredChunks = result.chunks().stream()
-                .map(item -> new ScoredChunk(
-                        chunkRepository.selectById(item.chunkId()),
-                        item.documentName(),
-                        item.finalScore(),
-                        item.vectorId(),
-                        item.hitReason()))
-                .filter(item -> item.chunk() != null)
-                .toList();
-        Map<Long, Integer> chunkIndexMap = result.chunks().stream()
-                .filter(item -> item.chunkId() != null && item.chunkIndex() != null)
-                .collect(Collectors.toMap(RetrievalService.RetrievedChunk::chunkId, RetrievalService.RetrievedChunk::chunkIndex, (a, b) -> a));
-        double maxFinalScore = result.chunks().stream()
-                .mapToDouble(RetrievalService.RetrievedChunk::finalScore)
-                .max()
-                .orElse(0d);
-        return new RetrievalResult(
-                scoredChunks,
-                chunkIndexMap,
-                result.mergedResultsCount(),
-                result.keywordResultsCount(),
-                result.vectorResultsCount(),
-                result.mergedResultsCount(),
-                maxFinalScore,
-                result.hasStrongKeywordHit()
-        );
+        return toRetrievalResult(result);
     }
 
     private RetrievalResult retrieveByDocument(Long userId, Long documentId, String question) {
         Document document = documentService.requireOwned(documentId);
         RetrievalService.RetrievalResult result = retrievalService.retrieveByDocument(
                 document.getKnowledgeBaseId(), userId, documentId, question, topK(), "hybrid", similarityThreshold());
+        return toRetrievalResult(result);
+    }
+
+    private RetrievalResult toRetrievalResult(RetrievalService.RetrievalResult result) {
         List<ScoredChunk> scoredChunks = result.chunks().stream()
                 .map(item -> new ScoredChunk(
                         chunkRepository.selectById(item.chunkId()),
@@ -686,36 +715,25 @@ public class ChatService {
                         item.hitReason()))
                 .filter(item -> item.chunk() != null)
                 .toList();
-        Map<Long, Integer> chunkIndexMap = result.chunks().stream()
-                .filter(item -> item.chunkId() != null && item.chunkIndex() != null)
-                .collect(Collectors.toMap(RetrievalService.RetrievedChunk::chunkId, RetrievalService.RetrievedChunk::chunkIndex, (a, b) -> a));
-        double maxFinalScore = result.chunks().stream()
-                .mapToDouble(RetrievalService.RetrievedChunk::finalScore)
-                .max()
-                .orElse(0d);
+        double maxFinalScore = result.chunks().stream().mapToDouble(RetrievalService.RetrievedChunk::finalScore).max().orElse(0d);
         return new RetrievalResult(
                 scoredChunks,
-                chunkIndexMap,
-                result.mergedResultsCount(),
-                result.keywordResultsCount(),
-                result.vectorResultsCount(),
                 result.mergedResultsCount(),
                 maxFinalScore,
                 result.hasStrongKeywordHit()
         );
     }
 
-    private ChatMessageReference saveReference(Long userId, Long messageId, ScoredChunk scored) {
-        ChatMessageReference reference = new ChatMessageReference();
-        reference.setUserId(userId);
-        reference.setMessageId(messageId);
-        reference.setDocumentId(scored.chunk().getDocumentId());
-        reference.setChunkId(scored.chunk().getId());
-        reference.setDocumentName(scored.documentName() == null ? "" : scored.documentName());
-        reference.setContent(scored.chunk().getContent());
-        reference.setScore(roundScore(scored.finalScore()));
-        referenceRepository.insert(reference);
-        return reference;
+    private void saveReference(Long userId, Long messageId, ReferenceVO reference) {
+        ChatMessageReference entity = new ChatMessageReference();
+        entity.setUserId(userId);
+        entity.setMessageId(messageId);
+        entity.setDocumentId(reference.documentId());
+        entity.setChunkId(reference.chunkId());
+        entity.setDocumentName(reference.documentName() == null ? "" : reference.documentName());
+        entity.setContent(reference.content() == null ? "" : reference.content());
+        entity.setScore(reference.finalScore());
+        referenceRepository.insert(entity);
     }
 
     private String buildPrompt(String question, List<ScoredChunk> chunks, Long sessionId, Long userId) {
@@ -768,14 +786,6 @@ public class ChatService {
         return BigDecimal.valueOf(score).setScale(4, RoundingMode.HALF_UP).doubleValue();
     }
 
-    private String brief(String content, int maxLen) {
-        if (!StringUtils.hasText(content)) {
-            return "";
-        }
-        String normalized = content.replaceAll("\\s+", " ").trim();
-        return normalized.length() <= maxLen ? normalized : normalized.substring(0, maxLen);
-    }
-
     private record ScoredChunk(DocumentChunk chunk,
                                String documentName,
                                double finalScore,
@@ -784,11 +794,7 @@ public class ChatService {
     }
 
     private record RetrievalResult(List<ScoredChunk> scoredChunks,
-                                   Map<Long, Integer> chunkIndexMap,
                                    int totalChunks,
-                                   int keywordResultsCount,
-                                   int vectorResultsCount,
-                                   int mergedResultsCount,
                                    double maxFinalScore,
                                    boolean hasStrongKeywordHit) {
     }

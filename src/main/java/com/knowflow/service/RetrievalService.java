@@ -77,6 +77,10 @@ public class RetrievalService {
         return retrieveInternal(knowledgeBaseId, query, topK, mode, threshold, chunks);
     }
 
+    public List<String> extractKeywordsForDebug(String query) {
+        return extractKeywords(query);
+    }
+
     private RetrievalResult retrieveInternal(Long knowledgeBaseId,
                                              String query,
                                              int topK,
@@ -166,15 +170,20 @@ public class RetrievalService {
         if (!StringUtils.hasText(query)) {
             return List.of();
         }
+        Map<Long, Document> documents = documentRepository.selectBatchIds(
+                        chunks.stream().map(DocumentChunk::getDocumentId).collect(Collectors.toSet()))
+                .stream()
+                .collect(Collectors.toMap(Document::getId, d -> d));
         return chunks.stream()
                 .map(chunk -> {
                     KeywordScore score = calcKeywordScore(query, normalizedQuery, keywords, chunk.getContent());
                     if (score.score() <= 0d) {
                         return null;
                     }
+                    Document doc = documents.get(chunk.getDocumentId());
                     return new RetrievedChunk(
                             chunk.getDocumentId(),
-                            null,
+                            doc == null ? "" : doc.getName(),
                             chunk.getId(),
                             chunk.getChunkIndex(),
                             chunk.getId() == null ? null : String.valueOf(chunk.getId()),
