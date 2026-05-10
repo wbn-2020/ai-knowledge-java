@@ -13,15 +13,16 @@ import com.knowflow.mapper.DocumentChunkRepository;
 import com.knowflow.mapper.DocumentProcessTaskRepository;
 import com.knowflow.mapper.DocumentRepository;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.DoubleStream;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-
 
 @Service
 public class DocumentProcessService {
@@ -56,18 +57,22 @@ public class DocumentProcessService {
     public void processAsync(Long taskId) {
         DocumentProcessTask task = null;
         Document document = null;
+        long processStart = System.currentTimeMillis();
+        List<String> logs = new ArrayList<>();
         try {
             task = taskRepository.selectById(taskId);
             if (task == null) {
                 log.error("Document process task not found, taskId={}", taskId);
                 return;
             }
+            appendLog(logs, "创建解析任务");
+
             document = documentRepository.selectById(task.getDocumentId());
             if (document == null) {
                 task.setStatus(TaskStatus.FAILED);
                 task.setFailReason("document not found, documentId=" + task.getDocumentId());
-                taskRepository.updateById(task);
-                log.error("Document not found for task, taskId={}, documentId={}", taskId, task.getDocumentId());
+                appendLog(logs, "解析失败：文档不存在");
+                appendLog(logs, "任务结束：FAILED");
                 return;
             }
             if (document.getKnowledgeBaseId() == null) {
@@ -77,14 +82,17 @@ public class DocumentProcessService {
                 document.setParseStatus(DocumentParseStatus.FAILED);
                 document.setEmbeddingStatus(EmbeddingStatus.FAILED);
                 document.setErrorMessage(reason);
-                taskRepository.updateById(task);
-                documentRepository.updateById(document);
+                appendLog(logs, "开始解析文档");
+                appendLog(logs, "解析失败：" + reason);
+                appendLog(logs, "任务结束：FAILED");
                 return;
             }
 
             task.setStatus(TaskStatus.PROCESSING);
+            task.setStartedAt(LocalDateTime.now());
             document.setParseStatus(DocumentParseStatus.PARSING);
             document.setEmbeddingStatus(EmbeddingStatus.PROCESSING);
+            appendLog(logs, "开始解析文档");
             taskRepository.updateById(task);
             documentRepository.updateById(document);
 
@@ -93,10 +101,15 @@ public class DocumentProcessService {
             if (text == null || text.isBlank()) {
                 throw new IllegalStateException("文档解析文本为空");
             }
+            appendLog(logs, "文本解析成功");
+
             List<String> chunks = textChunker.chunk(text);
             if (chunks == null || chunks.isEmpty()) {
                 throw new IllegalStateException("文档切片数量为 0");
             }
+            appendLog(logs, "切片数量：" + chunks.size());
+            appendLog(logs, "开始向量化");
+
             long embeddingStart = System.currentTimeMillis();
             int inputTokens = 0;
             int insertedChunkCount = 0;
@@ -120,6 +133,9 @@ public class DocumentProcessService {
             if (insertedChunkCount <= 0) {
                 throw new IllegalStateException("文档切片保存失败，数量为 0");
             }
+            appendLog(logs, "向量化成功");
+
+            long embeddingDuration = System.currentTimeMillis() - embeddingStart;
             logService.recordAiCall(
                     document.getUserId(),
                     document.getKnowledgeBaseId(),
@@ -128,7 +144,7 @@ public class DocumentProcessService {
                     "EMBEDDING",
                     "LOCAL",
                     "EMBEDDING",
-                    System.currentTimeMillis() - embeddingStart,
+                    embeddingDuration,
                     true,
                     null,
                     inputTokens,
@@ -136,12 +152,14 @@ public class DocumentProcessService {
             );
             task.setStatus(TaskStatus.SUCCESS);
             task.setFailReason(null);
+            appendLog(logs, "任务完成");
             document.setParseStatus(DocumentParseStatus.SUCCESS);
             document.setEmbeddingStatus(EmbeddingStatus.SUCCESS);
             document.setErrorMessage(null);
         } catch (Exception ex) {
             log.error("Document process failed, taskId={}", taskId, ex);
             if (document != null) {
+                long duration = Math.max(0L, System.currentTimeMillis() - processStart);
                 logService.recordAiCall(
                         document.getUserId(),
                         document.getKnowledgeBaseId(),
@@ -150,7 +168,7 @@ public class DocumentProcessService {
                         "EMBEDDING",
                         "LOCAL",
                         "EMBEDDING",
-                        0,
+                        duration,
                         false,
                         ex.getMessage(),
                         null,
@@ -160,25 +178,41 @@ public class DocumentProcessService {
             if (task != null) {
                 task.setStatus(TaskStatus.FAILED);
                 task.setFailReason(ex.getMessage());
+                appendLog(logs, "解析失败：" + ex.getMessage());
+                appendLog(logs, "任务结束：FAILED");
             }
             if (document != null) {
                 document.setParseStatus(DocumentParseStatus.FAILED);
                 document.setEmbeddingStatus(EmbeddingStatus.FAILED);
                 document.setErrorMessage(ex.getMessage());
             }
-        }
-        if (task != null) {
-            taskRepository.updateById(task);
-        }
-        if (document != null) {
-            documentRepository.updateById(document);
+        } finally {
+            if (task != null) {
+                finalizeTask(task, processStart, logs);
+                taskRepository.updateById(task);
+            }
+            if (document != null) {
+                documentRepository.updateById(document);
+            }
         }
     }
 
     private String serialize(double[] vector) {
         return DoubleStream.of(vector)
                 .mapToObj(v -> String.format("%.6f", v))
-                .reduce((a, b) -> a + "," + b)
-                .orElse("");
+                .collect(Collectors.joining(","));
+    }
+
+    private void appendLog(List<String> logs, String message) {
+        logs.add(LocalDateTime.now() + " " + message);
+    }
+
+    private void finalizeTask(DocumentProcessTask task, long processStart, List<String> logs) {
+        if (task.getStartedAt() == null) {
+            task.setStartedAt(LocalDateTime.now());
+        }
+        task.setFinishedAt(LocalDateTime.now());
+        task.setDurationMs(Math.max(0L, System.currentTimeMillis() - processStart));
+        task.setLogsJson(logs == null || logs.isEmpty() ? "" : String.join("\n", logs));
     }
 }

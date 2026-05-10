@@ -275,6 +275,7 @@ public class DocumentService {
         task.setUserId(document.getUserId());
         task.setKnowledgeBaseId(document.getKnowledgeBaseId());
         task.setDocumentId(document.getId());
+        task.setDocumentNameSnapshot(document.getName());
         task.setTaskType("DOCUMENT_PARSE");
         task.setStatus(TaskStatus.PENDING);
         taskRepository.insert(task);

@@ -164,11 +164,15 @@ public class ConfigService {
 
     public String defaultRagPrompt() {
         PromptTemplate template = promptRepository.selectOne(new LambdaQueryWrapper<PromptTemplate>()
-                .eq(PromptTemplate::getScene, "QA")
+                .in(PromptTemplate::getScene, "RAG", "QA")
                 .eq(PromptTemplate::getEnabled, true)
                 .orderByDesc(PromptTemplate::getUpdateTime)
                 .last("limit 1"));
-        return template == null || !StringUtils.hasText(template.getContent()) ? FALLBACK_RAG_PROMPT : template.getContent();
+        if (template == null || !StringUtils.hasText(template.getContent())) {
+            log.warn("No enabled RAG/QA prompt found, using fallback prompt");
+            return FALLBACK_RAG_PROMPT;
+        }
+        return template.getContent();
     }
 
     public AiModelConfig requireEnabledLlmConfig() {
@@ -268,13 +272,14 @@ public class ConfigService {
 
     private void fillPrompt(PromptTemplate template, PromptConfigRequest request) {
         String type = request.type().toUpperCase(Locale.ROOT);
-        if (!Set.of("QA", "SUMMARY", "KEYWORD", "TITLE").contains(type)) {
+        if (!Set.of("RAG", "QA", "SUMMARY", "KEYWORD", "TITLE").contains(type)) {
             throw BusinessException.badRequest("invalid prompt type");
         }
+        String normalizedType = "QA".equals(type) ? "RAG" : type;
         template.setName(request.name());
-        template.setCode(type + "_" + request.name().replaceAll("\\s+", "_").toUpperCase(Locale.ROOT));
+        template.setCode(normalizedType + "_" + request.name().replaceAll("\\s+", "_").toUpperCase(Locale.ROOT));
         template.setContent(request.content());
-        template.setScene(type);
+        template.setScene(normalizedType);
         template.setEnabled(request.enabled() == null || request.enabled());
         template.setDescription(request.name());
     }

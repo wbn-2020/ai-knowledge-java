@@ -22,6 +22,7 @@ public interface DocumentProcessTaskRepository extends BaseMapper<DocumentProces
                 .and(keyword != null && !keyword.isBlank(),
                         q -> q.like(DocumentProcessTask::getFailReason, keyword)
                               .like(DocumentProcessTask::getTaskType, keyword)
+                              .like(DocumentProcessTask::getDocumentNameSnapshot, keyword)
                               .or(keywordAsDocId != null)
                               .eq(keywordAsDocId != null, DocumentProcessTask::getDocumentId, keywordAsDocId))
                 .orderByDesc(DocumentProcessTask::getCreateTime));

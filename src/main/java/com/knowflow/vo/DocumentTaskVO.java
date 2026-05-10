@@ -2,15 +2,20 @@ package com.knowflow.vo;
 
 import com.knowflow.enums.TaskStatus;
 import java.time.LocalDateTime;
+import java.util.List;
 
 public record DocumentTaskVO(
-        Long id,
+        Long taskId,
         String taskType,
-        TaskStatus status,
         Long documentId,
         String documentName,
+        Boolean documentDeleted,
+        TaskStatus status,
+        LocalDateTime createdAt,
+        LocalDateTime startedAt,
+        LocalDateTime finishedAt,
+        Long durationMs,
         String failureReason,
-        LocalDateTime createTime,
-        LocalDateTime updateTime
+        List<String> logs
 ) {
 }

@@ -11,7 +11,6 @@ import org.springframework.util.StringUtils;
 @Service
 public class SearchService {
     private static final Logger log = LoggerFactory.getLogger(SearchService.class);
-    private static final double MIN_VALID_SCORE = 0.65d;
 
     private final KnowledgeBaseService knowledgeBaseService;
     private final RuntimeConfigService runtimeConfigService;
@@ -28,11 +27,8 @@ public class SearchService {
     public List<SearchResultVO> semanticSearch(Long knowledgeBaseId, String query, int topK) {
         Long userId = SecurityUtils.getCurrentUserId();
         knowledgeBaseService.requireOwned(knowledgeBaseId);
-        double threshold = Math.max(
-                MIN_VALID_SCORE,
-                runtimeConfigService.doubleValue("rag.similarityThreshold",
-                        runtimeConfigService.doubleValue("rag.minScore", 0.8))
-        );
+        double threshold = runtimeConfigService.doubleValue("rag.similarityThreshold",
+                runtimeConfigService.doubleValue("rag.minScore", 0.65));
         RetrievalService.RetrievalResult result = retrievalService.retrieve(
                 knowledgeBaseId, userId, query, topK, "hybrid", threshold);
         List<SearchResultVO> allResults = toSearchResult(result.chunks());

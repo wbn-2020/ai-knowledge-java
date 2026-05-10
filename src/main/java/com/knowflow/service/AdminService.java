@@ -28,6 +28,8 @@ import com.knowflow.vo.DocumentVO;
 import com.knowflow.vo.KnowledgeBaseVO;
 import com.knowflow.vo.LogVO;
 import com.knowflow.vo.UserVO;
+import java.util.Arrays;
+import java.util.Collections;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -93,7 +95,7 @@ public class AdminService {
         List<DocumentTaskVO> recentFailedTasks = taskRepository.selectList(new LambdaQueryWrapper<DocumentProcessTask>()
                         .eq(DocumentProcessTask::getStatus, TaskStatus.FAILED)
                         .orderByDesc(DocumentProcessTask::getCreateTime).last("limit 5"))
-                .stream().map(task -> toTaskVO(task, documentRepository.findByIdAndDeletedFalse(task.getDocumentId()).map(Document::getName).orElse(""))).toList();
+                .stream().map(this::toTaskVO).toList();
         List<LogVO> recentAiErrors = aiCallLogRepository.selectList(new LambdaQueryWrapper<AiCallLog>()
                         .eq(AiCallLog::getSuccess, false)
                         .orderByDesc(AiCallLog::getCreateTime).last("limit 5"))
@@ -225,10 +227,7 @@ public class AdminService {
     public PageResponse<DocumentTaskVO> tasks(TaskStatus status, String taskType, Long documentId, String keyword, int pageNo, int pageSize) {
         SecurityUtils.requireAdmin();
         Page<DocumentProcessTask> page = taskRepository.findByFilters(status, taskType, documentId, keyword == null ? "" : keyword, new Page<>(pageNo, pageSize));
-        Map<Long, String> documentNameMap = documentRepository.selectBatchIds(
-                page.getRecords().stream().map(DocumentProcessTask::getDocumentId).collect(Collectors.toSet()))
-                .stream().collect(Collectors.toMap(Document::getId, Document::getName));
-        return PageResponse.of(page.convert(task -> toTaskVO(task, documentNameMap.getOrDefault(task.getDocumentId(), ""))));
+        return PageResponse.of(page.convert(this::toTaskVO));
     }
 
     public DocumentTaskVO taskDetail(Long id) {
@@ -237,8 +236,7 @@ public class AdminService {
         if (task == null) {
             throw BusinessException.notFound("task not found");
         }
-        String documentName = documentRepository.findByIdAndDeletedFalse(task.getDocumentId()).map(Document::getName).orElse("");
-        return toTaskVO(task, documentName);
+        return toTaskVO(task);
     }
 
     @Transactional
@@ -262,13 +260,40 @@ public class AdminService {
         DocumentProcessTask created = taskRepository.findLatestByDocumentId(documentId)
                 .orElseThrow(() -> BusinessException.badRequest("retry task create failed"));
         operationLogService.record("RETRY_DOCUMENT_TASK", "DOCUMENT_TASK", id, "retry by admin, new taskId=" + created.getId());
-        String documentName = documentRepository.findByIdAndDeletedFalse(created.getDocumentId()).map(Document::getName).orElse("");
-        return toTaskVO(created, documentName);
+        return toTaskVO(created);
     }
 
-    private DocumentTaskVO toTaskVO(DocumentProcessTask task, String documentName) {
-        return new DocumentTaskVO(task.getId(), task.getTaskType(), task.getStatus(), task.getDocumentId(), documentName,
-                task.getFailReason(), task.getCreateTime(), task.getUpdateTime());
+    private DocumentTaskVO toTaskVO(DocumentProcessTask task) {
+        Document doc = task.getDocumentId() == null ? null : documentRepository.selectById(task.getDocumentId());
+        boolean documentDeleted = doc == null;
+        String documentName = doc == null ? task.getDocumentNameSnapshot() : doc.getName();
+        if (documentName == null || documentName.isBlank()) {
+            documentName = "未命名文档";
+        }
+        return new DocumentTaskVO(
+                task.getId(),
+                task.getTaskType(),
+                task.getDocumentId(),
+                documentName,
+                documentDeleted,
+                task.getStatus(),
+                task.getCreateTime(),
+                task.getStartedAt(),
+                task.getFinishedAt(),
+                task.getDurationMs(),
+                task.getFailReason(),
+                parseLogs(task.getLogsJson())
+        );
+    }
+
+    private List<String> parseLogs(String logsJson) {
+        if (logsJson == null || logsJson.isBlank()) {
+            return Collections.emptyList();
+        }
+        return Arrays.stream(logsJson.split("\\R"))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .toList();
     }
 
     private UserVO enrichUser(User user) {

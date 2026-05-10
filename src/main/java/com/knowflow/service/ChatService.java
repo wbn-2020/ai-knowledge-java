@@ -66,7 +66,6 @@ public class ChatService {
     private static final Logger log = LoggerFactory.getLogger(ChatService.class);
     private static final String NO_EVIDENCE_ANSWER = "当前知识库未找到足够相关资料，无法基于知识库回答。";
     private static final String GENERAL_ANSWER_PREFIX = "以下回答未基于当前知识库资料：";
-    private static final double MIN_REFERENCE_SCORE = 0.70d;
     private static final int MAX_REFERENCES = 3;
 
     private final KnowledgeBaseService knowledgeBaseService;
@@ -361,22 +360,21 @@ public class ChatService {
         saveMessage(userId, session.getId(), MessageRole.USER, question, null, null, Boolean.FALSE, Collections.emptyList());
 
         double threshold = similarityThreshold();
-        double evidenceThreshold = Math.max(threshold, MIN_REFERENCE_SCORE);
 
         List<ScoredChunk> sortedChunks = retrievalResult.scoredChunks().stream()
                 .sorted((a, b) -> Double.compare(b.finalScore(), a.finalScore()))
                 .toList();
         List<ScoredChunk> validChunks = sortedChunks.stream()
-                .filter(chunk -> chunk.finalScore() >= MIN_REFERENCE_SCORE)
+                .filter(chunk -> chunk.finalScore() >= threshold)
                 .limit(MAX_REFERENCES)
                 .toList();
         int filteredLowScoreCount = Math.max(0, sortedChunks.size() - validChunks.size());
         boolean hasChunks = retrievalResult.totalChunks() > 0;
         boolean hasReliableEvidence = !validChunks.isEmpty()
-                && (retrievalResult.hasStrongKeywordHit() || retrievalResult.maxFinalScore() >= evidenceThreshold);
+                && retrievalResult.maxFinalScore() >= threshold;
 
-        log.debug("Chat retrieval summary: query='{}', knowledgeBaseId={}, retrievalTopK={}, similarityThreshold={}, validReferencesCount={}, filteredLowScoreReferencesCount={}",
-                question, session.getKnowledgeBaseId(), topK(), evidenceThreshold, validChunks.size(), filteredLowScoreCount);
+        log.debug("Chat retrieval summary: query='{}', knowledgeBaseId={}, retrievalTopK={}, similarityThreshold={}, beforeFilterCount={}, afterFilterCount={}, filteredLowScoreReferencesCount={}",
+                question, session.getKnowledgeBaseId(), topK(), threshold, sortedChunks.size(), validChunks.size(), filteredLowScoreCount);
 
         if (!hasReliableEvidence) {
             NoAnswerReason noAnswerReason = !hasChunks

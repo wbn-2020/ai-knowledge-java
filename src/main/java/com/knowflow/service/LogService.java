@@ -142,7 +142,7 @@ public class LogService {
         log.setUserId(userId);
         log.setAccount(account);
         log.setIp(clientIp());
-        log.setUserAgent(userAgent());
+        log.setUserAgent(parseDeviceInfo(userAgent()));
         log.setSuccess(success);
         log.setMessage(message);
         log.setFailureReason(success ? null : message);
@@ -164,6 +164,36 @@ public class LogService {
     private String userAgent() {
         HttpServletRequest request = currentRequest();
         return request == null ? "" : StringUtils.trimWhitespace(request.getHeader("User-Agent"));
+    }
+
+    private String parseDeviceInfo(String ua) {
+        if (!StringUtils.hasText(ua)) {
+            return "Unknown / Unknown";
+        }
+        String lower = ua.toLowerCase();
+        String browser = "Other";
+        if (lower.contains("edg/")) {
+            browser = "Edge";
+        } else if (lower.contains("chrome/")) {
+            browser = "Chrome";
+        } else if (lower.contains("firefox/")) {
+            browser = "Firefox";
+        } else if (lower.contains("safari/") && !lower.contains("chrome/")) {
+            browser = "Safari";
+        }
+        String os = "Other";
+        if (lower.contains("windows")) {
+            os = "Windows";
+        } else if (lower.contains("mac os")) {
+            os = "macOS";
+        } else if (lower.contains("android")) {
+            os = "Android";
+        } else if (lower.contains("iphone") || lower.contains("ios")) {
+            os = "iOS";
+        } else if (lower.contains("linux")) {
+            os = "Linux";
+        }
+        return browser + " / " + os;
     }
 
     private HttpServletRequest currentRequest() {
