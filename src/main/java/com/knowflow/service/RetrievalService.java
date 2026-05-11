@@ -128,8 +128,11 @@ public class RetrievalService {
             }
         }
 
-        List<RetrievedChunk> topResults = mergedResults.stream().limit(topK).toList();
-        double maxVectorScore = topResults.stream().mapToDouble(RetrievedChunk::vectorScore).max().orElse(0d);
+        List<RetrievedChunk> thresholdFiltered = mergedResults.stream()
+                .filter(item -> item.finalScore() >= threshold)
+                .toList();
+        List<RetrievedChunk> topResults = thresholdFiltered.stream().limit(Math.max(1, topK)).toList();
+        double maxVectorScore = topResults.stream().mapToDouble(RetrievedChunk::finalScore).max().orElse(0d);
         boolean hasStrongKeywordHit = topResults.stream().anyMatch(item -> item.keywordScore() >= 0.8d);
 
         logRetrieval(query, knowledgeBaseId, extractedKeywords, effectiveMode, topK, threshold, queryEmbedding, keywordResults.size(), vectorResults.size(), mergedResults.size(), topResults);

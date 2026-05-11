@@ -13,7 +13,8 @@ public record ReferenceVO(Long documentId,
                           String snippet,
                           Double score,
                           Double finalScore,
-                          String hitReason) {
+                          String hitReason,
+                          Integer rank) {
     public static ReferenceVO from(ChatMessageReference reference, Integer chunkIndex) {
         String content = reference.getContent();
         return new ReferenceVO(
@@ -26,6 +27,7 @@ public record ReferenceVO(Long documentId,
                 snippet(content),
                 roundScore(reference.getScore()),
                 roundScore(reference.getScore()),
+                null,
                 null
         );
     }
@@ -41,7 +43,8 @@ public record ReferenceVO(Long documentId,
                 snippet(reference.content()),
                 roundScore(reference.finalScore()),
                 roundScore(reference.finalScore()),
-                reference.hitReason()
+                reference.hitReason(),
+                reference.rank()
         );
     }
 
@@ -67,6 +70,7 @@ public record ReferenceVO(Long documentId,
                                      String vectorId,
                                      String content,
                                      Double finalScore,
-                                     String hitReason) {
+                                     String hitReason,
+                                     Integer rank) {
     }
 }

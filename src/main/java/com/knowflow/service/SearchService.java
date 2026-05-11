@@ -28,7 +28,7 @@ public class SearchService {
         Long userId = SecurityUtils.getCurrentUserId();
         knowledgeBaseService.requireOwned(knowledgeBaseId);
         double threshold = runtimeConfigService.doubleValue("rag.similarityThreshold",
-                runtimeConfigService.doubleValue("rag.minScore", 0.65));
+                runtimeConfigService.doubleValue("rag.minScore", 0.55));
         RetrievalService.RetrievalResult result = retrievalService.retrieve(
                 knowledgeBaseId, userId, query, topK, "hybrid", threshold);
         List<SearchResultVO> allResults = toSearchResult(result.chunks());

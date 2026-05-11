@@ -12,6 +12,7 @@ public record SystemSettingsSaveRequest(
         @NotNull @Min(0) Integer chunkOverlap,
         @NotNull @Min(1) Integer topK,
         @NotNull @DecimalMin("0.0") Double similarityThreshold,
+        @Min(200) Integer contextMaxLength,
         @NotNull String platformName,
         String adminEmail
 ) {

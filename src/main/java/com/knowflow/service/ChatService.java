@@ -18,6 +18,7 @@ import com.knowflow.entity.Document;
 import com.knowflow.entity.DocumentChunk;
 import com.knowflow.entity.KnowledgeBase;
 import com.knowflow.enums.AnswerType;
+import com.knowflow.enums.DocumentParseStatus;
 import com.knowflow.enums.KnowledgeBaseStatus;
 import com.knowflow.enums.MessageRole;
 import com.knowflow.enums.NoAnswerReason;
@@ -40,7 +41,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -64,9 +65,13 @@ import org.springframework.util.StringUtils;
 @Service
 public class ChatService {
     private static final Logger log = LoggerFactory.getLogger(ChatService.class);
-    private static final String NO_EVIDENCE_ANSWER = "当前知识库未找到足够相关资料，无法基于知识库回答。";
-    private static final String GENERAL_ANSWER_PREFIX = "以下回答未基于当前知识库资料：";
-    private static final int MAX_REFERENCES = 3;
+    private static final String NO_RELEVANT_ANSWER = "当前知识库未找到与问题相关的内容，请上传相关文档或换个问题再试。";
+    private static final String KB_EMPTY_ANSWER = "当前知识库还没有可问答文档，请先上传并完成解析。";
+    private static final String DOC_PROCESSING_ANSWER = "当前知识库仍有文档处理中，请等待解析完成后再提问。";
+    private static final String NO_EVIDENCE_PROMPT_ANSWER = "当前知识库未找到相关依据。";
+    private static final int DEFAULT_TOP_K = 5;
+    private static final double DEFAULT_SIMILARITY_THRESHOLD = 0.55d;
+    private static final int DEFAULT_CONTEXT_MAX_LENGTH = 4000;
 
     private final KnowledgeBaseService knowledgeBaseService;
     private final DocumentService documentService;
@@ -99,8 +104,8 @@ public class ChatService {
                        RuntimeConfigService runtimeConfigService,
                        RetrievalService retrievalService,
                        ObjectMapper objectMapper,
-                       @Value("${knowflow.rag.top-k}") int topK,
-                       @Value("${knowflow.rag.similarity-threshold:0.8}") double similarityThreshold) {
+                       @Value("${knowflow.rag.top-k:5}") int topK,
+                       @Value("${knowflow.rag.similarity-threshold:0.55}") double similarityThreshold) {
         this.knowledgeBaseService = knowledgeBaseService;
         this.documentService = documentService;
         this.sessionRepository = sessionRepository;
@@ -115,21 +120,21 @@ public class ChatService {
         this.runtimeConfigService = runtimeConfigService;
         this.retrievalService = retrievalService;
         this.objectMapper = objectMapper;
-        this.defaultTopK = topK;
-        this.defaultSimilarityThreshold = similarityThreshold;
+        this.defaultTopK = topK > 0 ? topK : DEFAULT_TOP_K;
+        this.defaultSimilarityThreshold = similarityThreshold > 0 ? similarityThreshold : DEFAULT_SIMILARITY_THRESHOLD;
     }
 
     @Transactional
     public AskVO ask(AskRequest request) {
         KnowledgeBase kb = requireUsableKnowledgeBase(request.knowledgeBaseId());
         Long userId = SecurityUtils.getCurrentUserId();
+        ensureKnowledgeBaseReady(kb);
         ChatSession session = resolveSession(request.sessionId(), kb.getId(), userId, request.question());
         RetrievalResult retrievalResult = retrieveByKnowledgeBases(userId, List.of(kb.getId()), request.question());
-        boolean allowGeneralAnswer = Boolean.TRUE.equals(request.allowGeneralAnswer());
         NoAnswerReason emptyReason = kb.getDocumentCount() != null && kb.getDocumentCount() == 0
                 ? NoAnswerReason.EMPTY_KNOWLEDGE_BASE
                 : null;
-        return answer(userId, session, request.question(), retrievalResult, allowGeneralAnswer, emptyReason);
+        return answer(userId, session, request.question(), retrievalResult, emptyReason);
     }
 
     @Transactional
@@ -137,10 +142,10 @@ public class ChatService {
         Long userId = SecurityUtils.getCurrentUserId();
         Document document = documentService.requireOwned(request.documentId());
         requireUsableKnowledgeBase(document.getKnowledgeBaseId());
+        ensureKnowledgeBaseReadyById(document.getKnowledgeBaseId());
         ChatSession session = resolveSession(request.sessionId(), document.getKnowledgeBaseId(), userId, request.question());
         return answer(userId, session, request.question(),
                 retrieveByDocument(userId, request.documentId(), request.question()),
-                false,
                 null);
     }
 
@@ -152,6 +157,7 @@ public class ChatService {
             throw BusinessException.badRequest("knowledgeBaseIds cannot be empty");
         }
         List<KnowledgeBase> knowledgeBases = kbIds.stream().map(this::requireUsableKnowledgeBase).toList();
+        knowledgeBases.forEach(this::ensureKnowledgeBaseReady);
         ChatSession session = resolveSession(request.sessionId(), kbIds.get(0), userId, request.question());
         int totalDocumentCount = knowledgeBases.stream()
                 .map(KnowledgeBase::getDocumentCount)
@@ -161,7 +167,6 @@ public class ChatService {
         boolean emptyKnowledgeBase = totalDocumentCount == 0;
         return answer(userId, session, request.question(),
                 retrieveByKnowledgeBases(userId, kbIds, request.question()),
-                false,
                 emptyKnowledgeBase ? NoAnswerReason.EMPTY_KNOWLEDGE_BASE : null);
     }
 
@@ -258,6 +263,7 @@ public class ChatService {
     public AskVO regenerate(Long sessionId) {
         Long userId = SecurityUtils.getCurrentUserId();
         ChatSession session = requireSession(sessionId, userId);
+        ensureKnowledgeBaseReadyById(session.getKnowledgeBaseId());
         String lastQuestion = messagesForSession(userId, sessionId).stream()
                 .filter(message -> message.getRole() == MessageRole.USER)
                 .reduce((a, b) -> b)
@@ -265,7 +271,6 @@ public class ChatService {
                 .orElseThrow(() -> BusinessException.badRequest("no question to regenerate"));
         return answer(userId, session, lastQuestion,
                 retrieveByKnowledgeBases(userId, List.of(session.getKnowledgeBaseId()), lastQuestion),
-                false,
                 null);
     }
 
@@ -355,93 +360,48 @@ public class ChatService {
                          ChatSession session,
                          String question,
                          RetrievalResult retrievalResult,
-                         boolean allowGeneralAnswer,
                          NoAnswerReason preferredNoAnswerReason) {
         saveMessage(userId, session.getId(), MessageRole.USER, question, null, null, Boolean.FALSE, Collections.emptyList());
 
         double threshold = similarityThreshold();
-
         List<ScoredChunk> sortedChunks = retrievalResult.scoredChunks().stream()
                 .sorted((a, b) -> Double.compare(b.finalScore(), a.finalScore()))
                 .toList();
         List<ScoredChunk> validChunks = sortedChunks.stream()
                 .filter(chunk -> chunk.finalScore() >= threshold)
-                .limit(MAX_REFERENCES)
+                .limit(topK())
                 .toList();
-        int filteredLowScoreCount = Math.max(0, sortedChunks.size() - validChunks.size());
         boolean hasChunks = retrievalResult.totalChunks() > 0;
         boolean hasReliableEvidence = !validChunks.isEmpty()
                 && retrievalResult.maxFinalScore() >= threshold;
-
-        log.debug("Chat retrieval summary: query='{}', knowledgeBaseId={}, retrievalTopK={}, similarityThreshold={}, beforeFilterCount={}, afterFilterCount={}, filteredLowScoreReferencesCount={}",
-                question, session.getKnowledgeBaseId(), topK(), threshold, sortedChunks.size(), validChunks.size(), filteredLowScoreCount);
 
         if (!hasReliableEvidence) {
             NoAnswerReason noAnswerReason = !hasChunks
                     ? (preferredNoAnswerReason == null ? NoAnswerReason.NO_CHUNKS : preferredNoAnswerReason)
                     : NoAnswerReason.LOW_SIMILARITY;
-
-            if (!allowGeneralAnswer) {
-                ChatMessage assistantMessage = saveMessage(
-                        userId,
-                        session.getId(),
-                        MessageRole.ASSISTANT,
-                        NO_EVIDENCE_ANSWER,
-                        null,
-                        AnswerType.NO_CONTEXT,
-                        Boolean.TRUE,
-                        Collections.emptyList()
-                );
-                return new AskVO(
-                        session.getId(),
-                        question,
-                        NO_EVIDENCE_ANSWER,
-                        AnswerType.NO_CONTEXT.name(),
-                        true,
-                        assistantMessage.getId(),
-                        Collections.emptyList(),
-                        false,
-                        false,
-                        noAnswerReason.name()
-                );
-            }
-
-            AiModelConfig modelConfig = configService.requireEnabledLlmConfig();
-            String modelName = modelConfig.getModelName();
-            String prompt = "User question: " + question + "\nPlease provide a concise and safe general answer.";
-            long start = System.currentTimeMillis();
-            String answer;
-            try {
-                answer = GENERAL_ANSWER_PREFIX + "\n" + llmClient.complete(prompt, modelConfig);
-                logService.recordAiCall(
-                        userId, session.getKnowledgeBaseId(), session.getId(), modelConfig.getModelName(),
-                        resolveModelType(modelConfig), modelConfig.getProvider(), "QA",
-                        System.currentTimeMillis() - start, true, null, estimateTokens(prompt), estimateTokens(answer)
-                );
-            } catch (RuntimeException ex) {
-                logService.recordAiCall(
-                        userId, session.getKnowledgeBaseId(), session.getId(), modelConfig.getModelName(),
-                        resolveModelType(modelConfig), modelConfig.getProvider(), "QA",
-                        System.currentTimeMillis() - start, false, ex.getMessage(), estimateTokens(prompt), null
-                );
-                throw ex;
-            }
+            String noContextAnswer = resolveNoContextAnswer(noAnswerReason);
+            logService.recordAiCall(
+                    userId, session.getKnowledgeBaseId(), session.getId(), null,
+                    "LLM", "KNOWFLOW", "CHAT_QA",
+                    0L, true, "NO_RELEVANT_CONTEXT", null, null,
+                    question, retrievalResult.totalChunks(), validChunks.size(), topK(), threshold,
+                    retrievalResult.maxFinalScore(), false);
             ChatMessage assistantMessage = saveMessage(
                     userId,
                     session.getId(),
                     MessageRole.ASSISTANT,
-                    answer,
-                    modelName,
-                    AnswerType.GENERAL,
-                    Boolean.FALSE,
+                    noContextAnswer,
+                    null,
+                    AnswerType.NO_CONTEXT,
+                    Boolean.TRUE,
                     Collections.emptyList()
             );
             return new AskVO(
                     session.getId(),
                     question,
-                    answer,
-                    AnswerType.GENERAL.name(),
-                    false,
+                    noContextAnswer,
+                    AnswerType.NO_CONTEXT.name(),
+                    true,
                     assistantMessage.getId(),
                     Collections.emptyList(),
                     false,
@@ -451,11 +411,6 @@ public class ChatService {
         }
 
         AiModelConfig modelConfig = configService.requireEnabledLlmConfig();
-        boolean hasApiKey = StringUtils.hasText(modelConfig.getApiKey());
-        log.debug("Chat selectedModelId={}, provider={}, modelType={}, modelName={}, baseUrl={}, hasApiKey={}",
-                modelConfig.getId(), modelConfig.getProvider(), resolveModelType(modelConfig), modelConfig.getModelName(),
-                modelConfig.getBaseUrl(), hasApiKey);
-
         String prompt = buildPrompt(question, validChunks, session.getId(), userId);
         long start = System.currentTimeMillis();
         String answer;
@@ -463,24 +418,23 @@ public class ChatService {
             answer = llmClient.complete(prompt, modelConfig);
             logService.recordAiCall(
                     userId, session.getKnowledgeBaseId(), session.getId(), modelConfig.getModelName(),
-                    resolveModelType(modelConfig), modelConfig.getProvider(), "QA",
-                    System.currentTimeMillis() - start, true, null, estimateTokens(prompt), estimateTokens(answer)
+                    resolveModelType(modelConfig), modelConfig.getProvider(), "CHAT_QA",
+                    System.currentTimeMillis() - start, true, null, estimateTokens(prompt), estimateTokens(answer),
+                    question, retrievalResult.totalChunks(), validChunks.size(), topK(), threshold,
+                    retrievalResult.maxFinalScore(), true
             );
         } catch (RuntimeException ex) {
             logService.recordAiCall(
                     userId, session.getKnowledgeBaseId(), session.getId(), modelConfig.getModelName(),
-                    resolveModelType(modelConfig), modelConfig.getProvider(), "QA",
-                    System.currentTimeMillis() - start, false, ex.getMessage(), estimateTokens(prompt), null
+                    resolveModelType(modelConfig), modelConfig.getProvider(), "CHAT_QA",
+                    System.currentTimeMillis() - start, false, ex.getMessage(), estimateTokens(prompt), null,
+                    question, retrievalResult.totalChunks(), validChunks.size(), topK(), threshold,
+                    retrievalResult.maxFinalScore(), true
             );
             throw ex;
         }
 
-        List<ReferenceVO> responseReferences = validChunks.stream()
-                .map(this::toRetrievedReference)
-                .toList();
-        responseReferences = enrichDocumentNames(responseReferences);
-        logReferences(question, AnswerType.RAG, responseReferences);
-
+        List<ReferenceVO> responseReferences = enrichDocumentNames(toRankedReferences(validChunks));
         ChatMessage assistantMessage = saveMessage(
                 userId,
                 session.getId(),
@@ -548,27 +502,36 @@ public class ChatService {
         if (!CollectionUtils.isEmpty(references)) {
             return AnswerType.RAG.name();
         }
-        if (StringUtils.hasText(message.getContent()) && message.getContent().startsWith(GENERAL_ANSWER_PREFIX)) {
-            return AnswerType.GENERAL.name();
-        }
-        if (StringUtils.hasText(message.getContent()) && message.getContent().contains("未找到足够相关资料")) {
+        if (StringUtils.hasText(message.getContent()) && message.getContent().contains("未找到相关依据")) {
             return AnswerType.NO_CONTEXT.name();
         }
         return AnswerType.RAG.name();
     }
 
-    private ReferenceVO toRetrievedReference(ScoredChunk scored) {
-        DocumentChunk chunk = scored.chunk();
-        return ReferenceVO.fromRetrievedChunk(new ReferenceVO.RetrievalReference(
-                chunk.getDocumentId(),
-                scored.documentName(),
-                chunk.getId(),
-                chunk.getChunkIndex(),
-                scored.vectorId(),
-                chunk.getContent(),
-                roundScore(scored.finalScore()),
-                scored.hitReason()
-        ));
+    private List<ReferenceVO> toRankedReferences(List<ScoredChunk> chunks) {
+        if (chunks == null || chunks.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<ScoredChunk> sorted = chunks.stream()
+                .sorted(Comparator.comparingDouble(ScoredChunk::finalScore).reversed())
+                .toList();
+        java.util.ArrayList<ReferenceVO> references = new java.util.ArrayList<>(sorted.size());
+        for (int i = 0; i < sorted.size(); i++) {
+            ScoredChunk scored = sorted.get(i);
+            DocumentChunk chunk = scored.chunk();
+            references.add(ReferenceVO.fromRetrievedChunk(new ReferenceVO.RetrievalReference(
+                    chunk.getDocumentId(),
+                    scored.documentName(),
+                    chunk.getId(),
+                    chunk.getChunkIndex(),
+                    scored.vectorId(),
+                    chunk.getContent(),
+                    roundScore(scored.finalScore()),
+                    scored.hitReason(),
+                    i + 1
+            )));
+        }
+        return references;
     }
 
     private List<ReferenceVO> enrichDocumentNames(List<ReferenceVO> references) {
@@ -592,7 +555,6 @@ public class ChatService {
                     }
                     String docName = nameMap.get(reference.documentId());
                     if (!StringUtils.hasText(docName)) {
-                        log.warn("Reference documentName missing and document not found, documentId={}", reference.documentId());
                         return reference;
                     }
                     return new ReferenceVO(
@@ -605,20 +567,11 @@ public class ChatService {
                             reference.snippet(),
                             reference.score(),
                             reference.finalScore(),
-                            reference.hitReason()
+                            reference.hitReason(),
+                            reference.rank()
                     );
                 })
                 .toList();
-    }
-
-    private void logReferences(String query, AnswerType answerType, Collection<ReferenceVO> references) {
-        log.debug("Chat response references: query='{}', answerType={}, referencesCount={}",
-                query, answerType.name(), references.size());
-        for (ReferenceVO reference : references) {
-            log.debug("Ref item: documentId={}, documentName={}, chunkId={}, chunkIndex={}, hitReason={}, score={}, finalScore={}",
-                    reference.documentId(), reference.documentName(), reference.chunkId(), reference.chunkIndex(),
-                    reference.hitReason(), reference.score(), reference.finalScore());
-        }
     }
 
     private KnowledgeBase requireUsableKnowledgeBase(Long id) {
@@ -627,6 +580,33 @@ public class ChatService {
             throw BusinessException.badRequest("knowledge base is not available");
         }
         return kb;
+    }
+
+    private void ensureKnowledgeBaseReady(KnowledgeBase kb) {
+        long totalDocs = documentRepository.countByKnowledgeBaseIdAndDeletedFalse(kb.getId());
+        if (totalDocs <= 0) {
+            throw BusinessException.badRequest(KB_EMPTY_ANSWER);
+        }
+        long processingDocs = documentRepository.countByKnowledgeBaseIdAndStatuses(
+                kb.getId(), List.of(DocumentParseStatus.PENDING, DocumentParseStatus.PARSING));
+        if (processingDocs > 0) {
+            throw BusinessException.badRequest(DOC_PROCESSING_ANSWER);
+        }
+    }
+
+    private void ensureKnowledgeBaseReadyById(Long knowledgeBaseId) {
+        KnowledgeBase kb = requireUsableKnowledgeBase(knowledgeBaseId);
+        ensureKnowledgeBaseReady(kb);
+    }
+
+    private String resolveNoContextAnswer(NoAnswerReason reason) {
+        if (reason == NoAnswerReason.EMPTY_KNOWLEDGE_BASE) {
+            return KB_EMPTY_ANSWER;
+        }
+        if (reason == NoAnswerReason.NO_CHUNKS) {
+            return NO_RELEVANT_ANSWER;
+        }
+        return NO_EVIDENCE_PROMPT_ANSWER;
     }
 
     private ChatSession resolveSession(Long sessionId, Long knowledgeBaseId, Long userId, String question) {
@@ -738,23 +718,41 @@ public class ChatService {
         String context = chunks.stream()
                 .map(scored -> "[" + scored.chunk().getId() + "] " + scored.chunk().getContent())
                 .collect(Collectors.joining("\n\n"));
+        context = truncateContext(context, contextMaxLength());
         String history = messagesForSession(userId, sessionId).stream()
                 .limit(8)
                 .map(message -> message.getRole() + ": " + message.getContent())
                 .collect(Collectors.joining("\n"));
         return configService.defaultRagPrompt()
-                + "\nConversation history:\n" + history
-                + "\n\nQuestion: " + question
-                + "\n\nDocument chunks:\n" + context;
+                + "\n\n【知识库引用内容】\n" + context
+                + "\n\n【用户问题】\n" + question
+                + "\n\n请基于以上内容作答。"
+                + "\n\nConversation history:\n" + history;
     }
 
     private int topK() {
-        return runtimeConfigService.intValue("rag.topK", defaultTopK);
+        int configured = runtimeConfigService.intValue("rag.topK", defaultTopK);
+        return configured > 0 ? configured : DEFAULT_TOP_K;
     }
 
     private double similarityThreshold() {
-        return runtimeConfigService.doubleValue("rag.similarityThreshold",
+        double configured = runtimeConfigService.doubleValue("rag.similarityThreshold",
                 runtimeConfigService.doubleValue("rag.minScore", defaultSimilarityThreshold));
+        return configured >= 0 ? configured : DEFAULT_SIMILARITY_THRESHOLD;
+    }
+
+    private int contextMaxLength() {
+        return runtimeConfigService.intValue("rag.contextMaxLength", DEFAULT_CONTEXT_MAX_LENGTH);
+    }
+
+    private String truncateContext(String context, int maxLength) {
+        if (!StringUtils.hasText(context)) {
+            return "";
+        }
+        if (maxLength <= 0 || context.length() <= maxLength) {
+            return context;
+        }
+        return context.substring(0, maxLength);
     }
 
     private String sanitizePdfLine(String line) {

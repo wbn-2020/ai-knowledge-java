@@ -33,7 +33,8 @@ knowflow:
     root: ./data/uploads
   rag:
     top-k: 5
-    min-score: 0.05
+    min-score: 0.55
+    context-max-length: 4000
   deepseek:
     base-url: https://api.deepseek.com
     api-key: ${DEEPSEEK_API_KEY:}

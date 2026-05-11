@@ -62,8 +62,13 @@ public class AuthService {
     }
 
     public LoginVO login(LoginRequest request) {
-        User user = findByAccount(request.account());
+        User user = findByAccountOptional(request.account()).orElse(null);
+        if (user == null) {
+            logService.recordLogin(null, request.account(), false, "invalid account or password");
+            throw BusinessException.badRequest("invalid account or password");
+        }
         if (user.getStatus() != UserStatus.ENABLED) {
+            logService.recordLogin(user.getId(), request.account(), false, "account is disabled");
             throw BusinessException.forbidden("account is disabled");
         }
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
@@ -75,11 +80,17 @@ public class AuthService {
     }
 
     public LoginVO adminLogin(LoginRequest request) {
-        User user = findByAccount(request.account());
+        User user = findByAccountOptional(request.account()).orElse(null);
+        if (user == null) {
+            logService.recordLogin(null, request.account(), false, "invalid account or password");
+            throw BusinessException.badRequest("invalid account or password");
+        }
         if (user.getRole() != UserRole.ADMIN) {
+            logService.recordLogin(user.getId(), request.account(), false, "admin account required");
             throw BusinessException.forbidden("admin account required");
         }
         if (user.getStatus() != UserStatus.ENABLED) {
+            logService.recordLogin(user.getId(), request.account(), false, "account is disabled");
             throw BusinessException.forbidden("account is disabled");
         }
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
@@ -90,10 +101,9 @@ public class AuthService {
         return toLoginVO(user);
     }
 
-    private User findByAccount(String account) {
+    private java.util.Optional<User> findByAccountOptional(String account) {
         return userRepository.findByUsernameAndDeletedFalse(account)
-                .or(() -> userRepository.findByEmailAndDeletedFalse(account))
-                .orElseThrow(() -> BusinessException.badRequest("invalid account or password"));
+                .or(() -> userRepository.findByEmailAndDeletedFalse(account));
     }
 
     private LoginVO toLoginVO(User user) {

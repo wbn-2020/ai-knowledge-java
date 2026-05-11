@@ -122,4 +122,11 @@ public interface DocumentRepository extends BaseMapper<Document> {
                 .eq(Document::getKnowledgeBaseId, knowledgeBaseId)
                 .eq(Document::getDeleted, false));
     }
+
+    default long countByKnowledgeBaseIdAndStatuses(Long knowledgeBaseId, List<DocumentParseStatus> statuses) {
+        return selectCount(new LambdaQueryWrapper<Document>()
+                .eq(Document::getKnowledgeBaseId, knowledgeBaseId)
+                .eq(Document::getDeleted, false)
+                .in(statuses != null && !statuses.isEmpty(), Document::getParseStatus, statuses));
+    }
 }

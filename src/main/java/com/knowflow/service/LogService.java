@@ -7,11 +7,13 @@ import com.knowflow.entity.AiCallLog;
 import com.knowflow.entity.Document;
 import com.knowflow.entity.LoginLog;
 import com.knowflow.entity.OperationLog;
+import com.knowflow.entity.User;
 import com.knowflow.enums.DocumentParseStatus;
 import com.knowflow.mapper.AiCallLogRepository;
 import com.knowflow.mapper.DocumentRepository;
 import com.knowflow.mapper.LoginLogRepository;
 import com.knowflow.mapper.OperationLogRepository;
+import com.knowflow.mapper.UserRepository;
 import com.knowflow.security.SecurityUtils;
 import com.knowflow.vo.AlertVO;
 import com.knowflow.vo.LogVO;
@@ -32,15 +34,18 @@ public class LogService {
     private final LoginLogRepository loginLogRepository;
     private final AiCallLogRepository aiCallLogRepository;
     private final DocumentRepository documentRepository;
+    private final UserRepository userRepository;
 
     public LogService(OperationLogRepository operationLogRepository,
                       LoginLogRepository loginLogRepository,
                       AiCallLogRepository aiCallLogRepository,
-                      DocumentRepository documentRepository) {
+                      DocumentRepository documentRepository,
+                      UserRepository userRepository) {
         this.operationLogRepository = operationLogRepository;
         this.loginLogRepository = loginLogRepository;
         this.aiCallLogRepository = aiCallLogRepository;
         this.documentRepository = documentRepository;
+        this.userRepository = userRepository;
     }
 
     public PageResponse<LogVO> operationLogs(String action, Long userId, LocalDateTime startTime, LocalDateTime endTime, int pageNo, int pageSize) {
@@ -117,10 +122,42 @@ public class LogService {
                              String errorMessage,
                              Integer inputTokens,
                              Integer outputTokens) {
+        recordAiCall(userId, knowledgeBaseId, sessionId, modelName, modelType, provider, scene,
+                durationMs, success, errorMessage, inputTokens, outputTokens,
+                null, null, null, null, null, null, true);
+    }
+
+    public void recordAiCall(Long userId,
+                             Long knowledgeBaseId,
+                             Long sessionId,
+                             String modelName,
+                             String modelType,
+                             String provider,
+                             String scene,
+                             long durationMs,
+                             boolean success,
+                             String errorMessage,
+                             Integer inputTokens,
+                             Integer outputTokens,
+                             String question,
+                             Integer retrieveCount,
+                             Integer effectiveRetrieveCount,
+                             Integer topK,
+                             Double similarityThreshold,
+                             Double maxSimilarityScore,
+                             boolean llmCalled) {
         AiCallLog log = new AiCallLog();
         log.setUserId(userId);
         log.setKnowledgeBaseId(knowledgeBaseId);
         log.setSessionId(sessionId);
+        log.setUsername(resolveUsername(userId));
+        log.setQuestion(safeQuestion(question));
+        log.setRetrieveCount(retrieveCount);
+        log.setEffectiveRetrieveCount(effectiveRetrieveCount);
+        log.setTopK(topK);
+        log.setSimilarityThreshold(similarityThreshold);
+        log.setMaxSimilarityScore(maxSimilarityScore);
+        log.setLlmCalled(llmCalled);
         log.setModel(modelName);
         log.setModelName(modelName);
         log.setModelType(modelType);
@@ -135,6 +172,25 @@ public class LogService {
         log.setSuccess(success);
         log.setFailReason(errorMessage);
         aiCallLogRepository.insert(log);
+    }
+
+    private String resolveUsername(Long userId) {
+        if (userId == null) {
+            return null;
+        }
+        User user = userRepository.selectById(userId);
+        if (user == null) {
+            return null;
+        }
+        return user.getUsername();
+    }
+
+    private String safeQuestion(String question) {
+        if (!StringUtils.hasText(question)) {
+            return null;
+        }
+        String normalized = question.trim();
+        return normalized.length() <= 1000 ? normalized : normalized.substring(0, 1000);
     }
 
     public void recordLogin(Long userId, String account, boolean success, String message) {

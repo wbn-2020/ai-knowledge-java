@@ -36,15 +36,20 @@ public class JwtService {
     }
 
     public CurrentUser parse(String token) {
-        Claims claims = Jwts.parser()
-                .verifyWith(key)
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
+        Claims claims = parseClaims(token);
         return new CurrentUser(
                 Long.valueOf(claims.getSubject()),
                 claims.get("username", String.class),
                 UserRole.valueOf(claims.get("role", String.class))
         );
+    }
+
+    public Claims parseClaims(String token) {
+        Claims claims = Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+        return claims;
     }
 }

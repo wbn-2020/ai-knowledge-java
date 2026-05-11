@@ -202,6 +202,14 @@ CREATE TABLE IF NOT EXISTS ai_call_log (
   user_id BIGINT NOT NULL,
   knowledge_base_id BIGINT,
   session_id BIGINT,
+  username VARCHAR(64),
+  question VARCHAR(1000),
+  retrieve_count INT,
+  effective_retrieve_count INT,
+  top_k INT,
+  similarity_threshold DOUBLE,
+  max_similarity_score DOUBLE,
+  llm_called BIT NOT NULL DEFAULT 1,
   model VARCHAR(128),
   model_name VARCHAR(128),
   model_type VARCHAR(64),
@@ -302,7 +310,7 @@ SELECT 'DeepSeek Reasoner', 'DEEPSEEK', 'https://api.deepseek.com', NULL, 'deeps
 WHERE NOT EXISTS (SELECT 1 FROM ai_model_config WHERE provider = 'DEEPSEEK' AND model_name = 'deepseek-reasoner');
 
 INSERT INTO prompt_template (code, name, content, scene, enabled, default_template, description, create_time, update_time, deleted)
-SELECT 'rag_default', 'Default RAG Prompt', 'You are KnowFlow AI. Answer only from the provided document chunks. If evidence is insufficient, say that the current knowledge base has no sufficient evidence.', 'RAG', 1, 1, 'Default RAG prompt', NOW(), NOW(), 0
+SELECT 'rag_default', 'Default RAG Prompt', '你是 KnowFlow AI 的知识库问答助手。请严格根据【知识库引用内容】回答用户问题。规则：1. 只能使用【知识库引用内容】中的信息回答。2. 如果引用内容不足以回答问题，请直接说明“当前知识库未找到相关依据”，不要编造。3. 不要引入引用内容之外的信息，不要使用外部常识扩展。4. 回答要清晰、准确、简洁。5. 如果引用内容之间存在冲突，请说明冲突点。', 'RAG', 1, 1, 'Default RAG prompt', NOW(), NOW(), 0
 WHERE NOT EXISTS (SELECT 1 FROM prompt_template WHERE code = 'rag_default');
 
 INSERT INTO system_config (config_key, config_value, description, create_time, update_time, deleted)
@@ -318,12 +326,16 @@ SELECT 'rag.topK', '5', 'Default retrieval topK', NOW(), NOW(), 0
 WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE config_key = 'rag.topK');
 
 INSERT INTO system_config (config_key, config_value, description, create_time, update_time, deleted)
-SELECT 'rag.minScore', '0.05', 'Default retrieval minimum similarity score', NOW(), NOW(), 0
+SELECT 'rag.minScore', '0.55', 'Default retrieval minimum similarity score', NOW(), NOW(), 0
 WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE config_key = 'rag.minScore');
 
 INSERT INTO system_config (config_key, config_value, description, create_time, update_time, deleted)
-SELECT 'rag.similarityThreshold', '0.65', 'Default retrieval similarity threshold', NOW(), NOW(), 0
+SELECT 'rag.similarityThreshold', '0.55', 'Default retrieval similarity threshold', NOW(), NOW(), 0
 WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE config_key = 'rag.similarityThreshold');
+
+INSERT INTO system_config (config_key, config_value, description, create_time, update_time, deleted)
+SELECT 'rag.contextMaxLength', '4000', 'Default RAG max context length', NOW(), NOW(), 0
+WHERE NOT EXISTS (SELECT 1 FROM system_config WHERE config_key = 'rag.contextMaxLength');
 
 INSERT INTO knowledge_base (user_id, name, description, icon, category, status, document_count, create_time, update_time, deleted)
 SELECT u.id, 'KnowFlow Demo KB', 'Demo knowledge base for backend smoke tests', 'book', 'demo', 'NORMAL', 1, NOW(), NOW(), 0

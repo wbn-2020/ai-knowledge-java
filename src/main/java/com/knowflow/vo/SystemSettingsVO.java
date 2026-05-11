@@ -9,6 +9,7 @@ public record SystemSettingsVO(
         Integer chunkOverlap,
         Integer topK,
         Double similarityThreshold,
+        Integer contextMaxLength,
         String platformName,
         String adminEmail
 ) {
