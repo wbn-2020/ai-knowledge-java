@@ -1,6 +1,7 @@
 package com.knowflow.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.knowflow.common.BusinessException;
 import com.knowflow.common.PageResponse;
@@ -10,6 +11,7 @@ import com.knowflow.entity.DocumentProcessTask;
 import com.knowflow.entity.LoginLog;
 import com.knowflow.entity.User;
 import com.knowflow.enums.DocumentParseStatus;
+import com.knowflow.enums.EmbeddingStatus;
 import com.knowflow.enums.KnowledgeBaseStatus;
 import com.knowflow.enums.TaskStatus;
 import com.knowflow.enums.UserStatus;
@@ -32,6 +34,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -90,10 +93,14 @@ public class AdminService {
                 .stream().map(this::enrichUser).toList();
         List<KnowledgeBaseVO> recentKnowledgeBases = knowledgeBaseRepository.selectList(
                         new LambdaQueryWrapper<com.knowflow.entity.KnowledgeBase>()
+                                .eq(com.knowflow.entity.KnowledgeBase::getDeleted, false)
                                 .orderByDesc(com.knowflow.entity.KnowledgeBase::getUpdateTime)
                                 .last("limit 5"))
                 .stream().map(KnowledgeBaseVO::from).toList();
-        List<DocumentVO> recentDocuments = documentRepository.selectList(new LambdaQueryWrapper<Document>().orderByDesc(Document::getCreateTime).last("limit 5"))
+        List<DocumentVO> recentDocuments = documentRepository.selectList(new LambdaQueryWrapper<Document>()
+                        .eq(Document::getDeleted, false)
+                        .orderByDesc(Document::getCreateTime)
+                        .last("limit 5"))
                 .stream().map(DocumentVO::from).map(this::enrichDocument).toList();
         List<DocumentTaskVO> recentFailedTasks = taskRepository.selectList(new LambdaQueryWrapper<DocumentProcessTask>()
                         .eq(DocumentProcessTask::getStatus, TaskStatus.FAILED)
@@ -181,13 +188,18 @@ public class AdminService {
     public void deleteKnowledgeBase(Long id) {
         SecurityUtils.requireAdmin();
         var kb = knowledgeBaseRepository.findByIdAndDeletedFalse(id).orElseThrow(() -> BusinessException.notFound("knowledge base not found"));
+        chunkRepository.deleteByKnowledgeBaseId(id);
+        taskRepository.deleteByKnowledgeBaseId(id);
+        documentRepository.deleteByKnowledgeBaseId(id);
         kb.setDeleted(true);
+        kb.setDocumentCount(0);
         knowledgeBaseRepository.updateById(kb);
         operationLogService.record("DELETE_KB", "KNOWLEDGE_BASE", id, "admin delete knowledge base");
     }
 
     public PageResponse<DocumentVO> documents(String keyword, Long knowledgeBaseId, Long userId, String username,
-                                              DocumentParseStatus parseStatus, String fileType, int pageNo, int pageSize) {
+                                              DocumentParseStatus parseStatus, EmbeddingStatus embeddingStatus,
+                                              String fileType, int pageNo, int pageSize) {
         SecurityUtils.requireAdmin();
         List<Long> userIds = null;
         if (username != null && !username.isBlank()) {
@@ -198,7 +210,7 @@ public class AdminService {
             }
         }
         return PageResponse.of(documentRepository
-                .findByAdminFilters(keyword == null ? "" : keyword, knowledgeBaseId, userId, userIds, parseStatus, fileType, new Page<>(pageNo, pageSize))
+                .findByAdminFilters(keyword == null ? "" : keyword, knowledgeBaseId, userId, userIds, parseStatus, embeddingStatus, fileType, new Page<>(pageNo, pageSize))
                 .convert(DocumentVO::from)
                 .convert(this::enrichDocument));
     }
@@ -208,6 +220,18 @@ public class AdminService {
         return documentRepository.findByIdAndDeletedFalse(id).map(DocumentVO::from)
                 .map(this::enrichDocument)
                 .orElseThrow(() -> BusinessException.notFound("document not found"));
+    }
+
+    public DownloadFile adminDownload(Long id) {
+        SecurityUtils.requireAdmin();
+        Document document = documentRepository.findByIdAndDeletedFalse(id)
+                .orElseThrow(() -> BusinessException.notFound("document not found"));
+        Path path = documentService.adminDownloadPath(id);
+        String filename = (document.getOriginalName() != null && !document.getOriginalName().isBlank())
+                ? document.getOriginalName()
+                : ((document.getName() != null && !document.getName().isBlank()) ? document.getName() : "document-" + id);
+        operationLogService.record("DOWNLOAD_DOCUMENT", "DOCUMENT", id, "admin download document");
+        return new DownloadFile(path, filename);
     }
 
     public PageResponse<DocumentChunkVO> documentChunks(Long id, int pageNo, int pageSize) {
@@ -230,8 +254,23 @@ public class AdminService {
 
     public PageResponse<DocumentTaskVO> tasks(TaskStatus status, String taskType, Long documentId, String keyword, int pageNo, int pageSize) {
         SecurityUtils.requireAdmin();
-        Page<DocumentProcessTask> page = taskRepository.findByFilters(status, taskType, documentId, keyword == null ? "" : keyword, new Page<>(pageNo, pageSize));
+        String keywordValue = keyword == null ? "" : keyword;
+        List<Long> matchedDocumentIds = resolveMatchedDocumentIds(keywordValue);
+        Page<DocumentProcessTask> page = taskRepository.findByFilters(status, taskType, documentId, keywordValue, matchedDocumentIds, new Page<>(pageNo, pageSize));
         return PageResponse.of(page.convert(this::toTaskVO));
+    }
+
+    private List<Long> resolveMatchedDocumentIds(String keyword) {
+        if (keyword == null || keyword.isBlank()) {
+            return List.of();
+        }
+        String pattern = "%" + keyword.toLowerCase() + "%";
+        return documentRepository.selectList(new QueryWrapper<Document>()
+                        .select("id")
+                        .apply("lower(name) like {0}", pattern))
+                .stream()
+                .map(Document::getId)
+                .toList();
     }
 
     public DocumentTaskVO taskDetail(Long id) {
@@ -364,5 +403,8 @@ public class AdminService {
         }
         Long chunkCount = chunkRepository.countByDocumentId(base.id());
         return DocumentVO.enrich(base, knowledgeBaseName, uploaderName, chunkCount);
+    }
+
+    public record DownloadFile(Path path, String filename) {
     }
 }

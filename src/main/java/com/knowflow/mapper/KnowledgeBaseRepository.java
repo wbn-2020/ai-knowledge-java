@@ -14,22 +14,28 @@ public interface KnowledgeBaseRepository extends BaseMapper<KnowledgeBase> {
         return Optional.ofNullable(selectOne(new LambdaQueryWrapper<KnowledgeBase>()
                 .eq(KnowledgeBase::getId, id)
                 .eq(KnowledgeBase::getUserId, userId)
+                .eq(KnowledgeBase::getDeleted, false)
                 .last("limit 1")));
     }
 
     default Optional<KnowledgeBase> findByIdAndDeletedFalse(Long id) {
-        return Optional.ofNullable(selectById(id));
+        return Optional.ofNullable(selectOne(new LambdaQueryWrapper<KnowledgeBase>()
+                .eq(KnowledgeBase::getId, id)
+                .eq(KnowledgeBase::getDeleted, false)
+                .last("limit 1")));
     }
 
     default Page<KnowledgeBase> findByUserIdAndDeletedFalseAndNameContaining(String keyword, Long userId, Page<KnowledgeBase> page) {
         return selectPage(page, new LambdaQueryWrapper<KnowledgeBase>()
                 .eq(KnowledgeBase::getUserId, userId)
+                .eq(KnowledgeBase::getDeleted, false)
                 .like(keyword != null && !keyword.isBlank(), KnowledgeBase::getName, keyword)
                 .orderByDesc(KnowledgeBase::getUpdateTime));
     }
 
     default Page<KnowledgeBase> findByDeletedFalseAndNameContaining(String keyword, Page<KnowledgeBase> page) {
         return selectPage(page, new LambdaQueryWrapper<KnowledgeBase>()
+                .eq(KnowledgeBase::getDeleted, false)
                 .like(keyword != null && !keyword.isBlank(), KnowledgeBase::getName, keyword)
                 .orderByDesc(KnowledgeBase::getCreateTime));
     }
@@ -38,20 +44,26 @@ public interface KnowledgeBaseRepository extends BaseMapper<KnowledgeBase> {
                                                    KnowledgeBaseStatus status,
                                                    Page<KnowledgeBase> page) {
         return selectPage(page, new LambdaQueryWrapper<KnowledgeBase>()
+                .eq(KnowledgeBase::getDeleted, false)
                 .like(keyword != null && !keyword.isBlank(), KnowledgeBase::getName, keyword)
                 .eq(status != null, KnowledgeBase::getStatus, status)
                 .orderByDesc(KnowledgeBase::getCreateTime));
     }
 
     default long countByUserIdAndDeletedFalse(Long userId) {
-        return selectCount(new LambdaQueryWrapper<KnowledgeBase>().eq(KnowledgeBase::getUserId, userId));
+        return selectCount(new LambdaQueryWrapper<KnowledgeBase>()
+                .eq(KnowledgeBase::getUserId, userId)
+                .eq(KnowledgeBase::getDeleted, false));
     }
 
     default long countByDeletedFalse() {
-        return selectCount(new LambdaQueryWrapper<>());
+        return selectCount(new LambdaQueryWrapper<KnowledgeBase>()
+                .eq(KnowledgeBase::getDeleted, false));
     }
 
     default long countByStatusAndDeletedFalse(KnowledgeBaseStatus status) {
-        return selectCount(new LambdaQueryWrapper<KnowledgeBase>().eq(KnowledgeBase::getStatus, status));
+        return selectCount(new LambdaQueryWrapper<KnowledgeBase>()
+                .eq(KnowledgeBase::getStatus, status)
+                .eq(KnowledgeBase::getDeleted, false));
     }
 }

@@ -175,6 +175,16 @@ public class DocumentService {
         return path;
     }
 
+    public Path adminDownloadPath(Long id) {
+        Document document = documentRepository.findByIdAndDeletedFalse(id)
+                .orElseThrow(() -> BusinessException.notFound("document not found"));
+        Path path = Path.of(document.getFilePath()).toAbsolutePath().normalize();
+        if (!Files.exists(path)) {
+            throw BusinessException.notFound("file not found");
+        }
+        return path;
+    }
+
     @Transactional
     public void delete(Long id) {
         Document document = requireOwned(id);

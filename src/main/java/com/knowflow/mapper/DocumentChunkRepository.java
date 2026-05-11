@@ -12,18 +12,21 @@ public interface DocumentChunkRepository extends BaseMapper<DocumentChunk> {
     default List<DocumentChunk> findByUserIdAndKnowledgeBaseIdAndDeletedFalse(Long userId, Long knowledgeBaseId) {
         return selectList(new LambdaQueryWrapper<DocumentChunk>()
                 .eq(DocumentChunk::getUserId, userId)
-                .eq(DocumentChunk::getKnowledgeBaseId, knowledgeBaseId));
+                .eq(DocumentChunk::getKnowledgeBaseId, knowledgeBaseId)
+                .eq(DocumentChunk::getDeleted, false));
     }
 
     default List<DocumentChunk> findByDocumentIdAndDeletedFalseOrderByChunkIndexAsc(Long documentId) {
         return selectList(new LambdaQueryWrapper<DocumentChunk>()
                 .eq(DocumentChunk::getDocumentId, documentId)
+                .eq(DocumentChunk::getDeleted, false)
                 .orderByAsc(DocumentChunk::getChunkIndex));
     }
 
     default Page<DocumentChunk> findByDocumentIdOrderByChunkIndexAsc(Long documentId, Page<DocumentChunk> page) {
         return selectPage(page, new LambdaQueryWrapper<DocumentChunk>()
                 .eq(DocumentChunk::getDocumentId, documentId)
+                .eq(DocumentChunk::getDeleted, false)
                 .orderByAsc(DocumentChunk::getChunkIndex));
     }
 
@@ -31,6 +34,7 @@ public interface DocumentChunkRepository extends BaseMapper<DocumentChunk> {
         return selectPage(page, new LambdaQueryWrapper<DocumentChunk>()
                 .eq(DocumentChunk::getUserId, userId)
                 .eq(DocumentChunk::getDocumentId, documentId)
+                .eq(DocumentChunk::getDeleted, false)
                 .orderByAsc(DocumentChunk::getChunkIndex));
     }
 
@@ -43,6 +47,8 @@ public interface DocumentChunkRepository extends BaseMapper<DocumentChunk> {
     }
 
     default long countByDocumentId(Long documentId) {
-        return selectCount(new LambdaQueryWrapper<DocumentChunk>().eq(DocumentChunk::getDocumentId, documentId));
+        return selectCount(new LambdaQueryWrapper<DocumentChunk>()
+                .eq(DocumentChunk::getDocumentId, documentId)
+                .eq(DocumentChunk::getDeleted, false));
     }
 }

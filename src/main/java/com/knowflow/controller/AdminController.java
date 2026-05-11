@@ -5,7 +5,9 @@ import com.knowflow.common.PageResponse;
 import com.knowflow.dto.LoginRequest;
 import com.knowflow.vo.LoginVO;
 import com.knowflow.dto.ResetPasswordRequest;
+import com.knowflow.common.BusinessException;
 import com.knowflow.enums.DocumentParseStatus;
+import com.knowflow.enums.EmbeddingStatus;
 import com.knowflow.enums.KnowledgeBaseStatus;
 import com.knowflow.enums.TaskStatus;
 import com.knowflow.enums.UserStatus;
@@ -27,6 +29,17 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Locale;
 
 
 @RestController
@@ -104,15 +117,33 @@ public class AdminController {
                                                            @RequestParam(required = false) Long userId,
                                                            @RequestParam(required = false) String username,
                                                            @RequestParam(required = false) DocumentParseStatus parseStatus,
+                                                           @RequestParam(required = false) String embeddingStatus,
                                                            @RequestParam(required = false) String fileType,
                                                            @RequestParam(defaultValue = "1") int pageNo,
                                                            @RequestParam(defaultValue = "10") int pageSize) {
-        return ApiResponse.ok(adminService.documents(keyword, knowledgeBaseId, userId, username, parseStatus, fileType, pageNo, pageSize));
+        EmbeddingStatus parsedEmbeddingStatus = parseEmbeddingStatus(embeddingStatus);
+        return ApiResponse.ok(adminService.documents(keyword, knowledgeBaseId, userId, username, parseStatus, parsedEmbeddingStatus, fileType, pageNo, pageSize));
     }
 
     @GetMapping("/documents/{id}")
     public ApiResponse<DocumentVO> documentDetail(@PathVariable Long id) {
         return ApiResponse.ok(adminService.documentDetail(id));
+    }
+
+    @GetMapping("/documents/{id}/download")
+    public ResponseEntity<Resource> downloadDocument(@PathVariable Long id) throws IOException {
+        var download = adminService.adminDownload(id);
+        Path filePath = download.path();
+        String filename = download.filename();
+        String contentType = Files.probeContentType(filePath);
+        if (contentType == null || contentType.isBlank()) {
+            contentType = MediaType.APPLICATION_OCTET_STREAM_VALUE;
+        }
+        String encodedFilename = URLEncoder.encode(filename, StandardCharsets.UTF_8).replace("+", "%20");
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(contentType))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encodedFilename)
+                .body(new FileSystemResource(filePath));
     }
 
     @GetMapping("/documents/{id}/chunks")
@@ -134,13 +165,36 @@ public class AdminController {
     }
 
     @GetMapping("/document-tasks")
-    public ApiResponse<PageResponse<DocumentTaskVO>> tasks(@RequestParam(required = false) TaskStatus status,
+    public ApiResponse<PageResponse<DocumentTaskVO>> tasks(@RequestParam(required = false) String status,
                                                            @RequestParam(required = false) String taskType,
                                                            @RequestParam(required = false) Long documentId,
                                                            @RequestParam(defaultValue = "") String keyword,
                                                            @RequestParam(defaultValue = "1") int pageNo,
                                                            @RequestParam(defaultValue = "10") int pageSize) {
-        return ApiResponse.ok(adminService.tasks(status, taskType, documentId, keyword, pageNo, pageSize));
+        TaskStatus parsedStatus = parseTaskStatus(status);
+        return ApiResponse.ok(adminService.tasks(parsedStatus, taskType, documentId, keyword, pageNo, pageSize));
+    }
+
+    private TaskStatus parseTaskStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        try {
+            return TaskStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw BusinessException.badRequest("invalid task status: " + status + ", allowed values: PENDING, PROCESSING, SUCCESS, FAILED");
+        }
+    }
+
+    private EmbeddingStatus parseEmbeddingStatus(String embeddingStatus) {
+        if (embeddingStatus == null || embeddingStatus.isBlank()) {
+            return null;
+        }
+        try {
+            return EmbeddingStatus.valueOf(embeddingStatus.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw BusinessException.badRequest("向量状态参数不合法，仅支持 PENDING、PROCESSING、SUCCESS、FAILED。");
+        }
     }
 
     @PostMapping("/document-tasks/{id}/retry")

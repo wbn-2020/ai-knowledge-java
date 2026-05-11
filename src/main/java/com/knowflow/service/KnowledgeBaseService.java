@@ -58,6 +58,7 @@ public class KnowledgeBaseService {
         Long userId = SecurityUtils.getCurrentUserId();
         LambdaQueryWrapper<KnowledgeBase> query = new LambdaQueryWrapper<KnowledgeBase>()
                 .eq(KnowledgeBase::getUserId, userId)
+                .eq(KnowledgeBase::getDeleted, false)
                 .like(keyword != null && !keyword.isBlank(), KnowledgeBase::getName, keyword);
         if ("createTime".equalsIgnoreCase(sortBy)) {
             query.orderByDesc(KnowledgeBase::getCreateTime);
