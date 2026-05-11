@@ -72,6 +72,7 @@ public class ChatService {
     private static final int DEFAULT_TOP_K = 5;
     private static final double DEFAULT_SIMILARITY_THRESHOLD = 0.55d;
     private static final int DEFAULT_CONTEXT_MAX_LENGTH = 4000;
+    private static final String GENERAL_ANSWER_PROMPT = "你是 KnowFlow AI 助手。用户允许你基于通用知识回答，请直接、准确、简洁地回答问题。不要提及你没有知识库上下文。";
 
     private final KnowledgeBaseService knowledgeBaseService;
     private final DocumentService documentService;
@@ -134,7 +135,8 @@ public class ChatService {
         NoAnswerReason emptyReason = kb.getDocumentCount() != null && kb.getDocumentCount() == 0
                 ? NoAnswerReason.EMPTY_KNOWLEDGE_BASE
                 : null;
-        return answer(userId, session, request.question(), retrievalResult, emptyReason);
+        return answer(userId, session, request.question(), retrievalResult, emptyReason,
+                Boolean.TRUE.equals(request.allowGeneralAnswer()));
     }
 
     @Transactional
@@ -146,7 +148,8 @@ public class ChatService {
         ChatSession session = resolveSession(request.sessionId(), document.getKnowledgeBaseId(), userId, request.question());
         return answer(userId, session, request.question(),
                 retrieveByDocument(userId, request.documentId(), request.question()),
-                null);
+                null,
+                false);
     }
 
     @Transactional
@@ -167,7 +170,8 @@ public class ChatService {
         boolean emptyKnowledgeBase = totalDocumentCount == 0;
         return answer(userId, session, request.question(),
                 retrieveByKnowledgeBases(userId, kbIds, request.question()),
-                emptyKnowledgeBase ? NoAnswerReason.EMPTY_KNOWLEDGE_BASE : null);
+                emptyKnowledgeBase ? NoAnswerReason.EMPTY_KNOWLEDGE_BASE : null,
+                false);
     }
 
     public PageResponse<ChatSessionVO> sessions(int pageNo, int pageSize) {
@@ -271,7 +275,8 @@ public class ChatService {
                 .orElseThrow(() -> BusinessException.badRequest("no question to regenerate"));
         return answer(userId, session, lastQuestion,
                 retrieveByKnowledgeBases(userId, List.of(session.getKnowledgeBaseId()), lastQuestion),
-                null);
+                null,
+                false);
     }
 
     @Transactional
@@ -360,7 +365,8 @@ public class ChatService {
                          ChatSession session,
                          String question,
                          RetrievalResult retrievalResult,
-                         NoAnswerReason preferredNoAnswerReason) {
+                         NoAnswerReason preferredNoAnswerReason,
+                         boolean allowGeneralAnswer) {
         saveMessage(userId, session.getId(), MessageRole.USER, question, null, null, Boolean.FALSE, Collections.emptyList());
 
         double threshold = similarityThreshold();
@@ -374,8 +380,14 @@ public class ChatService {
         boolean hasChunks = retrievalResult.totalChunks() > 0;
         boolean hasReliableEvidence = !validChunks.isEmpty()
                 && retrievalResult.maxFinalScore() >= threshold;
+        log.debug("Chat retrieval summary: sessionId={}, kbId={}, question='{}', topK={}, threshold={}, rawRetrieveCount={}, effectiveRetrieveCount={}, maxSimilarityScore={}, allowGeneralAnswer={}",
+                session.getId(), session.getKnowledgeBaseId(), question, topK(), threshold,
+                retrievalResult.totalChunks(), validChunks.size(), retrievalResult.maxFinalScore(), allowGeneralAnswer);
 
         if (!hasReliableEvidence) {
+            if (allowGeneralAnswer && isGeneralAnswerAllowed()) {
+                return generalAnswer(userId, session, question, retrievalResult, validChunks.size(), threshold);
+            }
             NoAnswerReason noAnswerReason = !hasChunks
                     ? (preferredNoAnswerReason == null ? NoAnswerReason.NO_CHUNKS : preferredNoAnswerReason)
                     : NoAnswerReason.LOW_SIMILARITY;
@@ -457,6 +469,61 @@ public class ChatService {
                 responseReferences,
                 true,
                 true,
+                null
+        );
+    }
+
+    private AskVO generalAnswer(Long userId,
+                                ChatSession session,
+                                String question,
+                                RetrievalResult retrievalResult,
+                                int effectiveRetrieveCount,
+                                double threshold) {
+        AiModelConfig modelConfig = configService.requireEnabledLlmConfig();
+        String prompt = GENERAL_ANSWER_PROMPT + "\n\n用户问题：\n" + question + "\n";
+        long start = System.currentTimeMillis();
+        String answer;
+        try {
+            answer = llmClient.complete(prompt, modelConfig);
+            logService.recordAiCall(
+                    userId, session.getKnowledgeBaseId(), session.getId(), modelConfig.getModelName(),
+                    resolveModelType(modelConfig), modelConfig.getProvider(), "CHAT_QA_GENERAL",
+                    System.currentTimeMillis() - start, true, null, estimateTokens(prompt), estimateTokens(answer),
+                    question, retrievalResult.totalChunks(), effectiveRetrieveCount, topK(), threshold,
+                    retrievalResult.maxFinalScore(), true
+            );
+        } catch (RuntimeException ex) {
+            logService.recordAiCall(
+                    userId, session.getKnowledgeBaseId(), session.getId(), modelConfig.getModelName(),
+                    resolveModelType(modelConfig), modelConfig.getProvider(), "CHAT_QA_GENERAL",
+                    System.currentTimeMillis() - start, false, ex.getMessage(), estimateTokens(prompt), null,
+                    question, retrievalResult.totalChunks(), effectiveRetrieveCount, topK(), threshold,
+                    retrievalResult.maxFinalScore(), true
+            );
+            throw BusinessException.badRequest("通用回答调用失败，请稍后重试");
+        }
+
+        ChatMessage assistantMessage = saveMessage(
+                userId,
+                session.getId(),
+                MessageRole.ASSISTANT,
+                answer,
+                modelConfig.getModelName(),
+                AnswerType.GENERAL,
+                Boolean.FALSE,
+                Collections.emptyList()
+        );
+
+        return new AskVO(
+                session.getId(),
+                question,
+                answer,
+                AnswerType.GENERAL.name(),
+                false,
+                assistantMessage.getId(),
+                Collections.emptyList(),
+                false,
+                false,
                 null
         );
     }
@@ -739,6 +806,18 @@ public class ChatService {
         double configured = runtimeConfigService.doubleValue("rag.similarityThreshold",
                 runtimeConfigService.doubleValue("rag.minScore", defaultSimilarityThreshold));
         return configured >= 0 ? configured : DEFAULT_SIMILARITY_THRESHOLD;
+    }
+
+    private boolean isGeneralAnswerAllowed() {
+        String configured = runtimeConfigService.value("rag.allowGeneralAnswer");
+        if (!StringUtils.hasText(configured)) {
+            configured = runtimeConfigService.value("chat.allowGeneralAnswer");
+        }
+        if (!StringUtils.hasText(configured)) {
+            return true;
+        }
+        String normalized = configured.trim().toLowerCase();
+        return !("false".equals(normalized) || "0".equals(normalized) || "off".equals(normalized) || "no".equals(normalized));
     }
 
     private int contextMaxLength() {

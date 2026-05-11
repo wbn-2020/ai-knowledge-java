@@ -106,8 +106,10 @@ public class LogService {
     }
 
     public void recordAiCall(Long userId, String modelName, String callType, long elapsedMs, boolean success, String failReason) {
+        boolean llmCalled = callType != null && callType.toUpperCase().contains("CHAT");
         recordAiCall(userId, null, null, modelName, "CHAT".equalsIgnoreCase(callType) ? "LLM" : "EMBEDDING",
-                "DEEPSEEK", callType, elapsedMs, success, failReason, null, null);
+                "DEEPSEEK", callType, elapsedMs, success, failReason, null, null,
+                null, null, null, null, null, null, llmCalled);
     }
 
     public void recordAiCall(Long userId,
