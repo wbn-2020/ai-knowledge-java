@@ -137,7 +137,12 @@ CREATE TABLE IF NOT EXISTS document_summary (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   user_id BIGINT NOT NULL,
   document_id BIGINT NOT NULL,
+  knowledge_base_id BIGINT,
   summary LONGTEXT,
+  model_name VARCHAR(128),
+  status VARCHAR(32),
+  error_message VARCHAR(1024),
+  generated_at DATETIME,
   create_time DATETIME NOT NULL,
   update_time DATETIME NOT NULL,
   deleted BIT NOT NULL DEFAULT 0,
@@ -150,11 +155,32 @@ CREATE TABLE IF NOT EXISTS knowledge_base_summary (
   user_id BIGINT NOT NULL,
   knowledge_base_id BIGINT NOT NULL,
   summary LONGTEXT,
+  covered_document_count INT,
+  model_name VARCHAR(128),
+  status VARCHAR(32),
+  error_message VARCHAR(1024),
+  generated_at DATETIME,
   create_time DATETIME NOT NULL,
   update_time DATETIME NOT NULL,
   deleted BIT NOT NULL DEFAULT 0,
   UNIQUE KEY uk_user_kb_summary (user_id, knowledge_base_id),
   INDEX idx_kb_summary (knowledge_base_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS keyword_extract_result (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  target_type VARCHAR(32) NOT NULL,
+  target_id BIGINT NOT NULL,
+  knowledge_base_id BIGINT,
+  user_id BIGINT NOT NULL,
+  keyword VARCHAR(128) NOT NULL,
+  weight DOUBLE,
+  model_name VARCHAR(128),
+  create_time DATETIME NOT NULL,
+  update_time DATETIME NOT NULL,
+  deleted BIT NOT NULL DEFAULT 0,
+  INDEX idx_keyword_target (target_type, target_id),
+  INDEX idx_keyword_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS chat_feedback (

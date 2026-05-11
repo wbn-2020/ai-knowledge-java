@@ -180,6 +180,21 @@ public class ConfigService {
         return template.getContent();
     }
 
+    public String promptBySceneOrDefault(String scene, String fallback) {
+        if (!StringUtils.hasText(scene)) {
+            return fallback;
+        }
+        PromptTemplate template = promptRepository.selectOne(new LambdaQueryWrapper<PromptTemplate>()
+                .eq(PromptTemplate::getScene, scene)
+                .eq(PromptTemplate::getEnabled, true)
+                .orderByDesc(PromptTemplate::getUpdateTime)
+                .last("limit 1"));
+        if (template == null || !StringUtils.hasText(template.getContent())) {
+            return fallback;
+        }
+        return template.getContent();
+    }
+
     public AiModelConfig requireEnabledLlmConfig() {
         List<AiModelConfig> configs = modelRepository.selectList(new LambdaQueryWrapper<AiModelConfig>()
                 .eq(AiModelConfig::getEnabled, true)
@@ -280,7 +295,7 @@ public class ConfigService {
 
     private void fillPrompt(PromptTemplate template, PromptConfigRequest request) {
         String type = request.type().toUpperCase(Locale.ROOT);
-        if (!Set.of("RAG", "QA", "SUMMARY", "KEYWORD", "TITLE").contains(type)) {
+        if (!Set.of("RAG", "QA", "SUMMARY", "KEYWORD", "TITLE", "DOCUMENT_SUMMARY", "KB_SUMMARY", "KEYWORD_EXTRACT").contains(type)) {
             throw BusinessException.badRequest("invalid prompt type");
         }
         String normalizedType = "QA".equals(type) ? "RAG" : type;

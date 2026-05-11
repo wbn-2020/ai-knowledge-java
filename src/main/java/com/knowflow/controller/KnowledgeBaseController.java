@@ -4,7 +4,10 @@ import com.knowflow.common.ApiResponse;
 import com.knowflow.common.PageResponse;
 import com.knowflow.dto.KnowledgeBaseRequest;
 import com.knowflow.service.KnowledgeBaseService;
+import com.knowflow.service.SummaryService;
+import com.knowflow.vo.KeywordVO;
 import com.knowflow.vo.KnowledgeBaseDetailVO;
+import com.knowflow.vo.KnowledgeBaseSummaryVO;
 import com.knowflow.vo.KnowledgeBaseVO;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -22,9 +25,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/knowledge-bases")
 public class KnowledgeBaseController {
     private final KnowledgeBaseService service;
+    private final SummaryService summaryService;
 
-    public KnowledgeBaseController(KnowledgeBaseService service) {
+    public KnowledgeBaseController(KnowledgeBaseService service, SummaryService summaryService) {
         this.service = service;
+        this.summaryService = summaryService;
     }
 
     @PostMapping
@@ -59,5 +64,35 @@ public class KnowledgeBaseController {
     public ApiResponse<Void> delete(@PathVariable Long id) {
         service.delete(id);
         return ApiResponse.ok();
+    }
+
+    @GetMapping("/{id}/summary")
+    public ApiResponse<KnowledgeBaseSummaryVO> summary(@PathVariable Long id) {
+        return ApiResponse.ok(summaryService.getKnowledgeBaseSummaryV13(id));
+    }
+
+    @PostMapping("/{id}/summary/generate")
+    public ApiResponse<KnowledgeBaseSummaryVO> generateSummary(@PathVariable Long id) {
+        return ApiResponse.ok(summaryService.generateKnowledgeBaseSummary(id));
+    }
+
+    @PostMapping("/{id}/summary/regenerate")
+    public ApiResponse<KnowledgeBaseSummaryVO> regenerateSummary(@PathVariable Long id) {
+        return ApiResponse.ok(summaryService.regenerateKnowledgeBaseSummary(id));
+    }
+
+    @GetMapping("/{id}/keywords")
+    public ApiResponse<java.util.List<KeywordVO>> keywords(@PathVariable Long id) {
+        return ApiResponse.ok(summaryService.getKnowledgeBaseKeywords(id));
+    }
+
+    @PostMapping("/{id}/keywords/extract")
+    public ApiResponse<java.util.List<KeywordVO>> extractKeywords(@PathVariable Long id) {
+        return ApiResponse.ok(summaryService.extractKnowledgeBaseKeywords(id));
+    }
+
+    @PostMapping("/{id}/keywords/reextract")
+    public ApiResponse<java.util.List<KeywordVO>> reextractKeywords(@PathVariable Long id) {
+        return ApiResponse.ok(summaryService.reextractKnowledgeBaseKeywords(id));
     }
 }

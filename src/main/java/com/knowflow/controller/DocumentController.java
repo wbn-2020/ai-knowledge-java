@@ -6,8 +6,11 @@ import com.knowflow.dto.RenameDocumentRequest;
 import com.knowflow.enums.DocumentParseStatus;
 import com.knowflow.enums.EmbeddingStatus;
 import com.knowflow.service.DocumentService;
+import com.knowflow.service.SummaryService;
 import com.knowflow.vo.DocumentChunkVO;
+import com.knowflow.vo.DocumentSummaryVO;
 import com.knowflow.vo.DocumentVO;
+import com.knowflow.vo.KeywordVO;
 import jakarta.validation.Valid;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -31,9 +34,11 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/documents")
 public class DocumentController {
     private final DocumentService documentService;
+    private final SummaryService summaryService;
 
-    public DocumentController(DocumentService documentService) {
+    public DocumentController(DocumentService documentService, SummaryService summaryService) {
         this.documentService = documentService;
+        this.summaryService = summaryService;
     }
 
     @PostMapping("/upload")
@@ -90,5 +95,35 @@ public class DocumentController {
     @PostMapping("/{id}/retry")
     public ApiResponse<DocumentVO> retry(@PathVariable Long id) {
         return ApiResponse.ok(documentService.retry(id));
+    }
+
+    @GetMapping("/{id}/summary")
+    public ApiResponse<DocumentSummaryVO> summary(@PathVariable Long id) {
+        return ApiResponse.ok(summaryService.getDocumentSummaryV13(id));
+    }
+
+    @PostMapping("/{id}/summary/generate")
+    public ApiResponse<DocumentSummaryVO> generateSummary(@PathVariable Long id) {
+        return ApiResponse.ok(summaryService.generateDocumentSummary(id));
+    }
+
+    @PostMapping("/{id}/summary/regenerate")
+    public ApiResponse<DocumentSummaryVO> regenerateSummary(@PathVariable Long id) {
+        return ApiResponse.ok(summaryService.regenerateDocumentSummary(id));
+    }
+
+    @GetMapping("/{id}/keywords")
+    public ApiResponse<java.util.List<KeywordVO>> keywords(@PathVariable Long id) {
+        return ApiResponse.ok(summaryService.getDocumentKeywords(id));
+    }
+
+    @PostMapping("/{id}/keywords/extract")
+    public ApiResponse<java.util.List<KeywordVO>> extractKeywords(@PathVariable Long id) {
+        return ApiResponse.ok(summaryService.extractDocumentKeywords(id));
+    }
+
+    @PostMapping("/{id}/keywords/reextract")
+    public ApiResponse<java.util.List<KeywordVO>> reextractKeywords(@PathVariable Long id) {
+        return ApiResponse.ok(summaryService.reextractDocumentKeywords(id));
     }
 }
