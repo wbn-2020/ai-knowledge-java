@@ -191,9 +191,7 @@ public class AdminService {
         chunkRepository.deleteByKnowledgeBaseId(id);
         taskRepository.deleteByKnowledgeBaseId(id);
         documentRepository.deleteByKnowledgeBaseId(id);
-        kb.setDeleted(true);
-        kb.setDocumentCount(0);
-        knowledgeBaseRepository.updateById(kb);
+        knowledgeBaseRepository.deleteById(kb.getId());
         operationLogService.record("DELETE_KB", "KNOWLEDGE_BASE", id, "admin delete knowledge base");
     }
 
