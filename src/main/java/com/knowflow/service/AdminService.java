@@ -81,15 +81,18 @@ public class AdminService {
     public AdminOverviewVO overview() {
         SecurityUtils.requireAdmin();
         LocalDateTime today = LocalDate.now().atStartOfDay();
-        long qaCount = aiCallLogRepository.selectCount(new LambdaQueryWrapper<AiCallLog>()
-                .in(AiCallLog::getCallType, "CHAT", "QA"));
+        long qaCount = aiCallLogRepository.selectCount(new LambdaQueryWrapper<AiCallLog>());
         long todayUserCount = userRepository.selectCount(new LambdaQueryWrapper<User>().ge(User::getCreateTime, today));
         long todayDocumentCount = documentRepository.selectCount(new LambdaQueryWrapper<Document>().ge(Document::getCreateTime, today));
         long todayQaCount = aiCallLogRepository.selectCount(new LambdaQueryWrapper<AiCallLog>()
-                .in(AiCallLog::getCallType, "CHAT", "QA")
                 .ge(AiCallLog::getCreateTime, today));
         List<UserVO> recentUsers = userRepository.selectList(new LambdaQueryWrapper<User>().orderByDesc(User::getCreateTime).last("limit 5"))
                 .stream().map(this::enrichUser).toList();
+        List<KnowledgeBaseVO> recentKnowledgeBases = knowledgeBaseRepository.selectList(
+                        new LambdaQueryWrapper<com.knowflow.entity.KnowledgeBase>()
+                                .orderByDesc(com.knowflow.entity.KnowledgeBase::getUpdateTime)
+                                .last("limit 5"))
+                .stream().map(KnowledgeBaseVO::from).toList();
         List<DocumentVO> recentDocuments = documentRepository.selectList(new LambdaQueryWrapper<Document>().orderByDesc(Document::getCreateTime).last("limit 5"))
                 .stream().map(DocumentVO::from).map(this::enrichDocument).toList();
         List<DocumentTaskVO> recentFailedTasks = taskRepository.selectList(new LambdaQueryWrapper<DocumentProcessTask>()
@@ -99,7 +102,7 @@ public class AdminService {
         List<LogVO> recentAiErrors = aiCallLogRepository.selectList(new LambdaQueryWrapper<AiCallLog>()
                         .eq(AiCallLog::getSuccess, false)
                         .orderByDesc(AiCallLog::getCreateTime).last("limit 5"))
-                .stream().map(LogVO::from).toList();
+                .stream().map(this::toAiErrorLog).toList();
         return new AdminOverviewVO(
                 userRepository.count(),
                 knowledgeBaseRepository.countByDeletedFalse(),
@@ -111,6 +114,7 @@ public class AdminService {
                 documentRepository.countByParseStatusAndDeletedFalse(DocumentParseStatus.FAILED),
                 knowledgeBaseRepository.countByStatusAndDeletedFalse(KnowledgeBaseStatus.DISABLED),
                 recentUsers,
+                recentKnowledgeBases,
                 recentDocuments,
                 recentFailedTasks,
                 recentAiErrors
@@ -270,6 +274,11 @@ public class AdminService {
         if (documentName == null || documentName.isBlank()) {
             documentName = "未命名文档";
         }
+        String failureReason = task.getFailReason();
+        if ((failureReason == null || failureReason.isBlank()) && task.getStatus() == TaskStatus.FAILED) {
+            List<String> logs = parseLogs(task.getLogsJson());
+            failureReason = logs.isEmpty() ? "任务执行失败" : logs.get(logs.size() - 1);
+        }
         return new DocumentTaskVO(
                 task.getId(),
                 task.getTaskType(),
@@ -281,8 +290,38 @@ public class AdminService {
                 task.getStartedAt(),
                 task.getFinishedAt(),
                 task.getDurationMs(),
-                task.getFailReason(),
+                failureReason,
                 parseLogs(task.getLogsJson())
+        );
+    }
+
+    private LogVO toAiErrorLog(AiCallLog log) {
+        String failureReason = (log.getFailReason() == null || log.getFailReason().isBlank())
+                ? "AI 调用失败"
+                : log.getFailReason();
+        return new LogVO(
+                log.getId(),
+                log.getUserId(),
+                "AI_CALL",
+                "AI",
+                log.getCallType(),
+                "",
+                "FAILED",
+                (log.getModelName() == null || log.getModelName().isBlank())
+                        ? failureReason
+                        : (log.getModelName() + "：" + failureReason),
+                null,
+                null,
+                null,
+                log.getModel(),
+                log.getModelName(),
+                log.getModelType(),
+                log.getProvider(),
+                log.getPromptTokens(),
+                log.getCompletionTokens(),
+                log.getTotalTokens(),
+                log.getElapsedMs(),
+                log.getCreateTime()
         );
     }
 

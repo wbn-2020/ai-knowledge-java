@@ -109,7 +109,7 @@ public class DocumentService {
         kb.setDocumentCount(kb.getDocumentCount() + 1);
         knowledgeBaseRepository.updateById(kb);
 
-        DocumentProcessTask task = createTask(document);
+        DocumentProcessTask task = createTask(document, "创建解析任务");
         triggerProcessAfterCommit(task.getId(), document.getId());
         return enrichDocument(DocumentVO.from(document));
     }
@@ -192,7 +192,7 @@ public class DocumentService {
         document.setEmbeddingStatus(EmbeddingStatus.PENDING);
         document.setErrorMessage(null);
         documentRepository.updateById(document);
-        DocumentProcessTask task = createTask(document);
+        DocumentProcessTask task = createTask(document, "创建解析任务（重试）");
         triggerProcessAfterCommit(task.getId(), document.getId());
         return enrichDocument(DocumentVO.from(document));
     }
@@ -227,7 +227,7 @@ public class DocumentService {
         document.setEmbeddingStatus(EmbeddingStatus.PENDING);
         document.setErrorMessage(null);
         documentRepository.updateById(document);
-        DocumentProcessTask task = createTask(document);
+        DocumentProcessTask task = createTask(document, "创建解析任务（管理员重试）");
         triggerProcessAfterCommit(task.getId(), document.getId());
         return enrichDocument(DocumentVO.from(document));
     }
@@ -270,7 +270,7 @@ public class DocumentService {
                 recalculatedDocumentCount);
     }
 
-    private DocumentProcessTask createTask(Document document) {
+    private DocumentProcessTask createTask(Document document, String initialLog) {
         DocumentProcessTask task = new DocumentProcessTask();
         task.setUserId(document.getUserId());
         task.setKnowledgeBaseId(document.getKnowledgeBaseId());
@@ -278,6 +278,9 @@ public class DocumentService {
         task.setDocumentNameSnapshot(document.getName());
         task.setTaskType("DOCUMENT_PARSE");
         task.setStatus(TaskStatus.PENDING);
+        task.setLogsJson((initialLog == null || initialLog.isBlank())
+                ? "创建解析任务"
+                : initialLog);
         taskRepository.insert(task);
         if (task.getId() == null) {
             throw BusinessException.badRequest("document process task id not generated");

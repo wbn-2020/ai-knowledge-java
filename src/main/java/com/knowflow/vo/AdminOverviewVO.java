@@ -13,6 +13,7 @@ public record AdminOverviewVO(
         long failedDocumentCount,
         long disabledKnowledgeBaseCount,
         List<UserVO> recentUsers,
+        List<KnowledgeBaseVO> recentKnowledgeBases,
         List<DocumentVO> recentDocuments,
         List<DocumentTaskVO> recentFailedTasks,
         List<LogVO> recentAiErrors
