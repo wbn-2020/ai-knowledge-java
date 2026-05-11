@@ -5,6 +5,7 @@ import com.knowflow.common.PageResponse;
 import com.knowflow.dto.LoginRequest;
 import com.knowflow.vo.LoginVO;
 import com.knowflow.dto.ResetPasswordRequest;
+import com.knowflow.common.BusinessException;
 import com.knowflow.enums.DocumentParseStatus;
 import com.knowflow.enums.KnowledgeBaseStatus;
 import com.knowflow.enums.TaskStatus;
@@ -134,13 +135,25 @@ public class AdminController {
     }
 
     @GetMapping("/document-tasks")
-    public ApiResponse<PageResponse<DocumentTaskVO>> tasks(@RequestParam(required = false) TaskStatus status,
+    public ApiResponse<PageResponse<DocumentTaskVO>> tasks(@RequestParam(required = false) String status,
                                                            @RequestParam(required = false) String taskType,
                                                            @RequestParam(required = false) Long documentId,
                                                            @RequestParam(defaultValue = "") String keyword,
                                                            @RequestParam(defaultValue = "1") int pageNo,
                                                            @RequestParam(defaultValue = "10") int pageSize) {
-        return ApiResponse.ok(adminService.tasks(status, taskType, documentId, keyword, pageNo, pageSize));
+        TaskStatus parsedStatus = parseTaskStatus(status);
+        return ApiResponse.ok(adminService.tasks(parsedStatus, taskType, documentId, keyword, pageNo, pageSize));
+    }
+
+    private TaskStatus parseTaskStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        try {
+            return TaskStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw BusinessException.badRequest("invalid task status: " + status + ", allowed values: PENDING, PROCESSING, SUCCESS, FAILED");
+        }
     }
 
     @PostMapping("/document-tasks/{id}/retry")

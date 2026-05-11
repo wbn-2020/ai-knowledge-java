@@ -1,6 +1,7 @@
 package com.knowflow.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.knowflow.common.BusinessException;
 import com.knowflow.common.PageResponse;
@@ -230,8 +231,23 @@ public class AdminService {
 
     public PageResponse<DocumentTaskVO> tasks(TaskStatus status, String taskType, Long documentId, String keyword, int pageNo, int pageSize) {
         SecurityUtils.requireAdmin();
-        Page<DocumentProcessTask> page = taskRepository.findByFilters(status, taskType, documentId, keyword == null ? "" : keyword, new Page<>(pageNo, pageSize));
+        String keywordValue = keyword == null ? "" : keyword;
+        List<Long> matchedDocumentIds = resolveMatchedDocumentIds(keywordValue);
+        Page<DocumentProcessTask> page = taskRepository.findByFilters(status, taskType, documentId, keywordValue, matchedDocumentIds, new Page<>(pageNo, pageSize));
         return PageResponse.of(page.convert(this::toTaskVO));
+    }
+
+    private List<Long> resolveMatchedDocumentIds(String keyword) {
+        if (keyword == null || keyword.isBlank()) {
+            return List.of();
+        }
+        String pattern = "%" + keyword.toLowerCase() + "%";
+        return documentRepository.selectList(new QueryWrapper<Document>()
+                        .select("id")
+                        .apply("lower(name) like {0}", pattern))
+                .stream()
+                .map(Document::getId)
+                .toList();
     }
 
     public DocumentTaskVO taskDetail(Long id) {
