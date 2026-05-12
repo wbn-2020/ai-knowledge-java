@@ -44,10 +44,15 @@ import java.math.RoundingMode;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -477,6 +482,35 @@ public class ChatService {
             throw ex;
         }
 
+        if (isNoContextFallbackAnswer(answer) && !hasStrongRagEvidence(question, validChunks, threshold)) {
+            if (allowGeneralAnswer && isGeneralAnswerAllowed()) {
+                return generalAnswer(userId, session, question, retrievalResult, validChunks.size(), threshold, effectiveTopK);
+            }
+            String noContextAnswer = resolveNoContextAnswer(NoAnswerReason.LOW_SIMILARITY);
+            ChatMessage assistantMessage = saveMessage(
+                    userId,
+                    session.getId(),
+                    MessageRole.ASSISTANT,
+                    noContextAnswer,
+                    modelConfig.getModelName(),
+                    AnswerType.NO_CONTEXT,
+                    Boolean.TRUE,
+                    Collections.emptyList()
+            );
+            return new AskVO(
+                    session.getId(),
+                    question,
+                    noContextAnswer,
+                    AnswerType.NO_CONTEXT.name(),
+                    true,
+                    assistantMessage.getId(),
+                    Collections.emptyList(),
+                    false,
+                    false,
+                    NoAnswerReason.LOW_SIMILARITY.name()
+            );
+        }
+
         List<ReferenceVO> responseReferences = enrichDocumentNames(toRankedReferences(validChunks));
         ChatMessage assistantMessage = saveMessage(
                 userId,
@@ -736,9 +770,9 @@ public class ChatService {
         if (normalizedRequest != null) {
             return normalizedRequest;
         }
-        double configured = runtimeConfigService.doubleValue("rag.documentSimilarityThreshold", DEFAULT_SIMILARITY_THRESHOLD);
+        double configured = runtimeConfigService.doubleValue("rag.documentSimilarityThreshold", similarityThreshold());
         if (configured < 0d || configured > 1d) {
-            return DEFAULT_SIMILARITY_THRESHOLD;
+            return similarityThreshold();
         }
         return configured;
     }
@@ -751,6 +785,73 @@ public class ChatService {
             return NO_RELEVANT_ANSWER;
         }
         return NO_EVIDENCE_PROMPT_ANSWER;
+    }
+
+    private boolean isNoContextFallbackAnswer(String answer) {
+        if (!StringUtils.hasText(answer)) {
+            return false;
+        }
+        String normalized = answer.replaceAll("\\s+", "");
+        String lower = normalized.toLowerCase(Locale.ROOT);
+        return normalized.contains("当前知识库未找到相关依据")
+                || normalized.contains("未找到相关依据")
+                || normalized.contains("无法从当前文档中找到相关内容")
+                || lower.contains("no relevant context")
+                || lower.contains("not found in the knowledge base")
+                || lower.contains("insufficient context");
+    }
+
+    private boolean hasStrongRagEvidence(String question, List<ScoredChunk> validChunks, double threshold) {
+        if (CollectionUtils.isEmpty(validChunks)) {
+            return false;
+        }
+        double maxScore = validChunks.stream()
+                .mapToDouble(ScoredChunk::finalScore)
+                .max()
+                .orElse(0d);
+        if (maxScore >= threshold + 0.01d) {
+            return true;
+        }
+        return hasQuestionOverlapWithReferences(question, validChunks);
+    }
+
+    private boolean hasQuestionOverlapWithReferences(String question, List<ScoredChunk> validChunks) {
+        if (!StringUtils.hasText(question) || CollectionUtils.isEmpty(validChunks)) {
+            return false;
+        }
+        String evidence = validChunks.stream()
+                .map(ScoredChunk::chunk)
+                .filter(Objects::nonNull)
+                .map(DocumentChunk::getContent)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.joining(" "))
+                .toLowerCase(Locale.ROOT);
+        if (!StringUtils.hasText(evidence)) {
+            return false;
+        }
+
+        Set<String> tokens = new LinkedHashSet<>();
+        Matcher english = Pattern.compile("[A-Za-z0-9]{2,}").matcher(question);
+        while (english.find()) {
+            tokens.add(english.group().toLowerCase(Locale.ROOT));
+        }
+
+        String chineseOnly = question.replaceAll("[^\\p{IsHan}]", "");
+        if (chineseOnly.length() >= 2) {
+            for (int i = 0; i < chineseOnly.length() - 1; i++) {
+                tokens.add(chineseOnly.substring(i, i + 2));
+            }
+        }
+
+        for (String token : tokens) {
+            if (token.length() < 2) {
+                continue;
+            }
+            if (evidence.contains(token)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private ChatSession resolveSession(Long sessionId,
