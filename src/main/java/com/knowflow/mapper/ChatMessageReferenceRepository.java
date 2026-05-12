@@ -18,4 +18,13 @@ public interface ChatMessageReferenceRepository extends BaseMapper<ChatMessageRe
         return delete(new LambdaQueryWrapper<ChatMessageReference>()
                 .eq(ChatMessageReference::getDocumentId, documentId));
     }
+
+    default List<ChatMessageReference> findByMessageIds(List<Long> messageIds) {
+        if (messageIds == null || messageIds.isEmpty()) {
+            return List.of();
+        }
+        return selectList(new LambdaQueryWrapper<ChatMessageReference>()
+                .in(ChatMessageReference::getMessageId, messageIds)
+                .orderByAsc(ChatMessageReference::getCreateTime));
+    }
 }
