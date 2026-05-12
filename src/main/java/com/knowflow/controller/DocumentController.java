@@ -2,11 +2,14 @@ package com.knowflow.controller;
 
 import com.knowflow.common.ApiResponse;
 import com.knowflow.common.PageResponse;
+import com.knowflow.dto.DocumentChatRequest;
 import com.knowflow.dto.RenameDocumentRequest;
 import com.knowflow.enums.DocumentParseStatus;
 import com.knowflow.enums.EmbeddingStatus;
+import com.knowflow.service.ChatService;
 import com.knowflow.service.DocumentService;
 import com.knowflow.service.SummaryService;
+import com.knowflow.vo.AskVO;
 import com.knowflow.vo.DocumentChunkVO;
 import com.knowflow.vo.DocumentSummaryVO;
 import com.knowflow.vo.DocumentVO;
@@ -35,10 +38,12 @@ import org.springframework.web.multipart.MultipartFile;
 public class DocumentController {
     private final DocumentService documentService;
     private final SummaryService summaryService;
+    private final ChatService chatService;
 
-    public DocumentController(DocumentService documentService, SummaryService summaryService) {
+    public DocumentController(DocumentService documentService, SummaryService summaryService, ChatService chatService) {
         this.documentService = documentService;
         this.summaryService = summaryService;
+        this.chatService = chatService;
     }
 
     @PostMapping("/upload")
@@ -95,6 +100,11 @@ public class DocumentController {
     @PostMapping("/{id}/retry")
     public ApiResponse<DocumentVO> retry(@PathVariable Long id) {
         return ApiResponse.ok(documentService.retry(id));
+    }
+
+    @PostMapping("/{id}/chat")
+    public ApiResponse<AskVO> chat(@PathVariable Long id, @Valid @RequestBody DocumentChatRequest request) {
+        return ApiResponse.ok(chatService.askDocumentScoped(id, request));
     }
 
     @GetMapping("/{id}/summary")

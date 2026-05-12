@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.knowflow.common.BusinessException;
 import com.knowflow.common.PageResponse;
 import com.knowflow.dto.AskRequest;
+import com.knowflow.dto.DocumentChatRequest;
 import com.knowflow.dto.DocumentAskRequest;
 import com.knowflow.dto.FeedbackRequest;
 import com.knowflow.dto.MultiKnowledgeAskRequest;
@@ -19,6 +20,7 @@ import com.knowflow.entity.DocumentChunk;
 import com.knowflow.entity.KnowledgeBase;
 import com.knowflow.enums.AnswerType;
 import com.knowflow.enums.DocumentParseStatus;
+import com.knowflow.enums.EmbeddingStatus;
 import com.knowflow.enums.KnowledgeBaseStatus;
 import com.knowflow.enums.MessageRole;
 import com.knowflow.enums.NoAnswerReason;
@@ -72,6 +74,8 @@ public class ChatService {
     private static final int DEFAULT_TOP_K = 5;
     private static final double DEFAULT_SIMILARITY_THRESHOLD = 0.55d;
     private static final int DEFAULT_CONTEXT_MAX_LENGTH = 4000;
+    private static final String SESSION_SCOPE_KNOWLEDGE_BASE = "KNOWLEDGE_BASE";
+    private static final String SESSION_SCOPE_DOCUMENT = "DOCUMENT";
     private static final String GENERAL_ANSWER_PROMPT = "你是 KnowFlow AI 助手。用户允许你基于通用知识回答，请直接、准确、简洁地回答问题。不要提及你没有知识库上下文。";
 
     private final KnowledgeBaseService knowledgeBaseService;
@@ -130,13 +134,13 @@ public class ChatService {
         KnowledgeBase kb = requireUsableKnowledgeBase(request.knowledgeBaseId());
         Long userId = SecurityUtils.getCurrentUserId();
         ensureKnowledgeBaseReady(kb);
-        ChatSession session = resolveSession(request.sessionId(), kb.getId(), userId, request.question());
+        ChatSession session = resolveSession(request.sessionId(), kb.getId(), null, SESSION_SCOPE_KNOWLEDGE_BASE, userId, request.question());
         RetrievalResult retrievalResult = retrieveByKnowledgeBases(userId, List.of(kb.getId()), request.question());
         NoAnswerReason emptyReason = kb.getDocumentCount() != null && kb.getDocumentCount() == 0
                 ? NoAnswerReason.EMPTY_KNOWLEDGE_BASE
                 : null;
         return answer(userId, session, request.question(), retrievalResult, emptyReason,
-                Boolean.TRUE.equals(request.allowGeneralAnswer()));
+                Boolean.TRUE.equals(request.allowGeneralAnswer()), null, null, "CHAT_QA");
     }
 
     @Transactional
@@ -144,12 +148,35 @@ public class ChatService {
         Long userId = SecurityUtils.getCurrentUserId();
         Document document = documentService.requireOwned(request.documentId());
         requireUsableKnowledgeBase(document.getKnowledgeBaseId());
-        ensureKnowledgeBaseReadyById(document.getKnowledgeBaseId());
-        ChatSession session = resolveSession(request.sessionId(), document.getKnowledgeBaseId(), userId, request.question());
+        validateDocumentReadyForChat(document);
+        ChatSession session = resolveSession(request.sessionId(), document.getKnowledgeBaseId(), document.getId(), SESSION_SCOPE_DOCUMENT, userId, request.question());
         return answer(userId, session, request.question(),
-                retrieveByDocument(userId, request.documentId(), request.question()),
+                retrieveByDocument(userId, request.documentId(), request.question(), null, null),
                 null,
-                false);
+                false, null, null, "DOCUMENT_RAG");
+    }
+
+    @Transactional
+    public AskVO askDocumentScoped(Long documentId, DocumentChatRequest request) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        Document document = documentService.requireOwned(documentId);
+        requireUsableKnowledgeBase(document.getKnowledgeBaseId());
+        validateDocumentReadyForChat(document);
+        Integer effectiveTopK = normalizeTopK(request.topK());
+        Double effectiveThreshold = resolveDocumentThreshold(request.similarityThreshold());
+        ChatSession session = resolveSession(request.sessionId(), document.getKnowledgeBaseId(), document.getId(),
+                SESSION_SCOPE_DOCUMENT, userId, request.question());
+        return answer(
+                userId,
+                session,
+                request.question(),
+                retrieveByDocument(userId, documentId, request.question(), effectiveTopK, effectiveThreshold),
+                null,
+                Boolean.TRUE.equals(request.allowGeneralAnswer()),
+                effectiveTopK,
+                effectiveThreshold,
+                "DOCUMENT_RAG"
+        );
     }
 
     @Transactional
@@ -161,7 +188,7 @@ public class ChatService {
         }
         List<KnowledgeBase> knowledgeBases = kbIds.stream().map(this::requireUsableKnowledgeBase).toList();
         knowledgeBases.forEach(this::ensureKnowledgeBaseReady);
-        ChatSession session = resolveSession(request.sessionId(), kbIds.get(0), userId, request.question());
+        ChatSession session = resolveSession(request.sessionId(), kbIds.get(0), null, SESSION_SCOPE_KNOWLEDGE_BASE, userId, request.question());
         int totalDocumentCount = knowledgeBases.stream()
                 .map(KnowledgeBase::getDocumentCount)
                 .filter(Objects::nonNull)
@@ -171,7 +198,7 @@ public class ChatService {
         return answer(userId, session, request.question(),
                 retrieveByKnowledgeBases(userId, kbIds, request.question()),
                 emptyKnowledgeBase ? NoAnswerReason.EMPTY_KNOWLEDGE_BASE : null,
-                false);
+                false, null, null, "CHAT_QA_MULTI");
     }
 
     public PageResponse<ChatSessionVO> sessions(int pageNo, int pageSize) {
@@ -276,7 +303,7 @@ public class ChatService {
         return answer(userId, session, lastQuestion,
                 retrieveByKnowledgeBases(userId, List.of(session.getKnowledgeBaseId()), lastQuestion),
                 null,
-                false);
+                false, null, null, "CHAT_QA_REGENERATE");
     }
 
     @Transactional
@@ -366,27 +393,31 @@ public class ChatService {
                          String question,
                          RetrievalResult retrievalResult,
                          NoAnswerReason preferredNoAnswerReason,
-                         boolean allowGeneralAnswer) {
+                         boolean allowGeneralAnswer,
+                         Integer topKOverride,
+                         Double thresholdOverride,
+                         String ragScene) {
         saveMessage(userId, session.getId(), MessageRole.USER, question, null, null, Boolean.FALSE, Collections.emptyList());
 
-        double threshold = similarityThreshold();
+        int effectiveTopK = topKOverride == null ? topK() : topKOverride;
+        double threshold = thresholdOverride == null ? similarityThreshold() : thresholdOverride;
         List<ScoredChunk> sortedChunks = retrievalResult.scoredChunks().stream()
                 .sorted((a, b) -> Double.compare(b.finalScore(), a.finalScore()))
                 .toList();
         List<ScoredChunk> validChunks = sortedChunks.stream()
                 .filter(chunk -> chunk.finalScore() >= threshold)
-                .limit(topK())
+                .limit(effectiveTopK)
                 .toList();
         boolean hasChunks = retrievalResult.totalChunks() > 0;
         boolean hasReliableEvidence = !validChunks.isEmpty()
                 && retrievalResult.maxFinalScore() >= threshold;
         log.debug("Chat retrieval summary: sessionId={}, kbId={}, question='{}', topK={}, threshold={}, rawRetrieveCount={}, effectiveRetrieveCount={}, maxSimilarityScore={}, allowGeneralAnswer={}",
-                session.getId(), session.getKnowledgeBaseId(), question, topK(), threshold,
+                session.getId(), session.getKnowledgeBaseId(), question, effectiveTopK, threshold,
                 retrievalResult.totalChunks(), validChunks.size(), retrievalResult.maxFinalScore(), allowGeneralAnswer);
 
         if (!hasReliableEvidence) {
             if (allowGeneralAnswer && isGeneralAnswerAllowed()) {
-                return generalAnswer(userId, session, question, retrievalResult, validChunks.size(), threshold);
+                return generalAnswer(userId, session, question, retrievalResult, validChunks.size(), threshold, effectiveTopK);
             }
             NoAnswerReason noAnswerReason = !hasChunks
                     ? (preferredNoAnswerReason == null ? NoAnswerReason.NO_CHUNKS : preferredNoAnswerReason)
@@ -394,9 +425,9 @@ public class ChatService {
             String noContextAnswer = resolveNoContextAnswer(noAnswerReason);
             logService.recordAiCall(
                     userId, session.getKnowledgeBaseId(), session.getId(), null,
-                    "LLM", "KNOWFLOW", "CHAT_QA",
+                    "LLM", "KNOWFLOW", ragScene,
                     0L, true, "NO_RELEVANT_CONTEXT", null, null,
-                    question, retrievalResult.totalChunks(), validChunks.size(), topK(), threshold,
+                    question, retrievalResult.totalChunks(), validChunks.size(), effectiveTopK, threshold,
                     retrievalResult.maxFinalScore(), false);
             ChatMessage assistantMessage = saveMessage(
                     userId,
@@ -430,17 +461,17 @@ public class ChatService {
             answer = llmClient.complete(prompt, modelConfig);
             logService.recordAiCall(
                     userId, session.getKnowledgeBaseId(), session.getId(), modelConfig.getModelName(),
-                    resolveModelType(modelConfig), modelConfig.getProvider(), "CHAT_QA",
+                    resolveModelType(modelConfig), modelConfig.getProvider(), ragScene,
                     System.currentTimeMillis() - start, true, null, estimateTokens(prompt), estimateTokens(answer),
-                    question, retrievalResult.totalChunks(), validChunks.size(), topK(), threshold,
+                    question, retrievalResult.totalChunks(), validChunks.size(), effectiveTopK, threshold,
                     retrievalResult.maxFinalScore(), true
             );
         } catch (RuntimeException ex) {
             logService.recordAiCall(
                     userId, session.getKnowledgeBaseId(), session.getId(), modelConfig.getModelName(),
-                    resolveModelType(modelConfig), modelConfig.getProvider(), "CHAT_QA",
+                    resolveModelType(modelConfig), modelConfig.getProvider(), ragScene,
                     System.currentTimeMillis() - start, false, ex.getMessage(), estimateTokens(prompt), null,
-                    question, retrievalResult.totalChunks(), validChunks.size(), topK(), threshold,
+                    question, retrievalResult.totalChunks(), validChunks.size(), effectiveTopK, threshold,
                     retrievalResult.maxFinalScore(), true
             );
             throw ex;
@@ -478,7 +509,8 @@ public class ChatService {
                                 String question,
                                 RetrievalResult retrievalResult,
                                 int effectiveRetrieveCount,
-                                double threshold) {
+                                double threshold,
+                                int effectiveTopK) {
         AiModelConfig modelConfig = configService.requireEnabledLlmConfig();
         String prompt = GENERAL_ANSWER_PROMPT + "\n\n用户问题：\n" + question + "\n";
         long start = System.currentTimeMillis();
@@ -489,7 +521,7 @@ public class ChatService {
                     userId, session.getKnowledgeBaseId(), session.getId(), modelConfig.getModelName(),
                     resolveModelType(modelConfig), modelConfig.getProvider(), "CHAT_QA_GENERAL",
                     System.currentTimeMillis() - start, true, null, estimateTokens(prompt), estimateTokens(answer),
-                    question, retrievalResult.totalChunks(), effectiveRetrieveCount, topK(), threshold,
+                    question, retrievalResult.totalChunks(), effectiveRetrieveCount, effectiveTopK, threshold,
                     retrievalResult.maxFinalScore(), true
             );
         } catch (RuntimeException ex) {
@@ -497,7 +529,7 @@ public class ChatService {
                     userId, session.getKnowledgeBaseId(), session.getId(), modelConfig.getModelName(),
                     resolveModelType(modelConfig), modelConfig.getProvider(), "CHAT_QA_GENERAL",
                     System.currentTimeMillis() - start, false, ex.getMessage(), estimateTokens(prompt), null,
-                    question, retrievalResult.totalChunks(), effectiveRetrieveCount, topK(), threshold,
+                    question, retrievalResult.totalChunks(), effectiveRetrieveCount, effectiveTopK, threshold,
                     retrievalResult.maxFinalScore(), true
             );
             throw BusinessException.badRequest("通用回答调用失败，请稍后重试");
@@ -666,6 +698,51 @@ public class ChatService {
         ensureKnowledgeBaseReady(kb);
     }
 
+    private void validateDocumentReadyForChat(Document document) {
+        if (document.getParseStatus() != DocumentParseStatus.SUCCESS) {
+            throw BusinessException.badRequest("document is not parsed successfully");
+        }
+        if (document.getEmbeddingStatus() != EmbeddingStatus.SUCCESS) {
+            throw BusinessException.badRequest("document embeddings are not ready");
+        }
+        long chunkCount = chunkRepository.countByDocumentId(document.getId());
+        if (chunkCount <= 0) {
+            throw BusinessException.badRequest("document has no chunks");
+        }
+    }
+
+    private Integer normalizeTopK(Integer topKOverride) {
+        if (topKOverride == null) {
+            return null;
+        }
+        if (topKOverride <= 0) {
+            throw BusinessException.badRequest("topK must be greater than 0");
+        }
+        return topKOverride;
+    }
+
+    private Double normalizeThreshold(Double thresholdOverride) {
+        if (thresholdOverride == null) {
+            return null;
+        }
+        if (thresholdOverride < 0d || thresholdOverride > 1d) {
+            throw BusinessException.badRequest("similarityThreshold must be between 0 and 1");
+        }
+        return thresholdOverride;
+    }
+
+    private Double resolveDocumentThreshold(Double requestThreshold) {
+        Double normalizedRequest = normalizeThreshold(requestThreshold);
+        if (normalizedRequest != null) {
+            return normalizedRequest;
+        }
+        double configured = runtimeConfigService.doubleValue("rag.documentSimilarityThreshold", DEFAULT_SIMILARITY_THRESHOLD);
+        if (configured < 0d || configured > 1d) {
+            return DEFAULT_SIMILARITY_THRESHOLD;
+        }
+        return configured;
+    }
+
     private String resolveNoContextAnswer(NoAnswerReason reason) {
         if (reason == NoAnswerReason.EMPTY_KNOWLEDGE_BASE) {
             return KB_EMPTY_ANSWER;
@@ -676,17 +753,32 @@ public class ChatService {
         return NO_EVIDENCE_PROMPT_ANSWER;
     }
 
-    private ChatSession resolveSession(Long sessionId, Long knowledgeBaseId, Long userId, String question) {
+    private ChatSession resolveSession(Long sessionId,
+                                       Long knowledgeBaseId,
+                                       Long documentId,
+                                       String scopeType,
+                                       Long userId,
+                                       String question) {
         if (sessionId != null) {
             ChatSession session = requireSession(sessionId, userId);
             if (!session.getKnowledgeBaseId().equals(knowledgeBaseId)) {
                 throw BusinessException.badRequest("session does not belong to this knowledge base");
+            }
+            if (SESSION_SCOPE_DOCUMENT.equals(scopeType)) {
+                if (!SESSION_SCOPE_DOCUMENT.equals(session.getScopeType())) {
+                    throw BusinessException.badRequest("session is not a document chat session");
+                }
+                if (session.getDocumentId() == null || !session.getDocumentId().equals(documentId)) {
+                    throw BusinessException.badRequest("session does not belong to this document");
+                }
             }
             return session;
         }
         ChatSession session = new ChatSession();
         session.setUserId(userId);
         session.setKnowledgeBaseId(knowledgeBaseId);
+        session.setScopeType(scopeType);
+        session.setDocumentId(documentId);
         String normalizedTitle = StringUtils.hasText(question) ? question.trim() : "";
         if (!StringUtils.hasText(normalizedTitle)) {
             normalizedTitle = "New Session";
@@ -743,10 +835,16 @@ public class ChatService {
         return toRetrievalResult(result);
     }
 
-    private RetrievalResult retrieveByDocument(Long userId, Long documentId, String question) {
+    private RetrievalResult retrieveByDocument(Long userId,
+                                               Long documentId,
+                                               String question,
+                                               Integer topKOverride,
+                                               Double thresholdOverride) {
         Document document = documentService.requireOwned(documentId);
+        int effectiveTopK = topKOverride == null ? topK() : topKOverride;
+        double effectiveThreshold = thresholdOverride == null ? similarityThreshold() : thresholdOverride;
         RetrievalService.RetrievalResult result = retrievalService.retrieveByDocument(
-                document.getKnowledgeBaseId(), userId, documentId, question, topK(), "hybrid", similarityThreshold());
+                document.getKnowledgeBaseId(), userId, documentId, question, effectiveTopK, "hybrid", effectiveThreshold);
         return toRetrievalResult(result);
     }
 
@@ -760,7 +858,7 @@ public class ChatService {
                         item.hitReason()))
                 .filter(item -> item.chunk() != null)
                 .toList();
-        double maxFinalScore = result.chunks().stream().mapToDouble(RetrievalService.RetrievedChunk::finalScore).max().orElse(0d);
+        double maxFinalScore = result.maxVectorScore();
         return new RetrievalResult(
                 scoredChunks,
                 result.mergedResultsCount(),

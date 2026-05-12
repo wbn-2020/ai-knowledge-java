@@ -93,6 +93,8 @@ CREATE TABLE IF NOT EXISTS chat_session (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   user_id BIGINT NOT NULL,
   knowledge_base_id BIGINT NOT NULL,
+  scope_type VARCHAR(32),
+  document_id BIGINT,
   title VARCHAR(255) NOT NULL,
   create_time DATETIME NOT NULL,
   update_time DATETIME NOT NULL,
